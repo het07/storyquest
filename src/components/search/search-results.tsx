@@ -9,6 +9,7 @@ import { ConceptMap } from "@/components/search/concept-map";
 import { SourceCard } from "@/components/search/source-card";
 import { ListenButton } from "@/components/voice/listen-button";
 import { QuizButton } from "@/components/quiz/quiz-button";
+import { ChallengeButton } from "@/components/arena/challenge-button";
 import { StudyInDepth } from "@/components/search/study-in-depth";
 import { CareerRoadmapPanel } from "@/components/search/career-roadmap";
 
@@ -89,6 +90,11 @@ export function SearchResults({
           <>
             <ListenButton text={buildNarration(result)} label="Listen" />
             <QuizButton
+              topic={result.query}
+              context={buildNarration(result)}
+              difficulty={result.difficulty}
+            />
+            <ChallengeButton
               topic={result.query}
               context={buildNarration(result)}
               difficulty={result.difficulty}

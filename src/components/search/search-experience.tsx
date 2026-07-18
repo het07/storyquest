@@ -8,6 +8,7 @@ import type { SearchResult } from "@/types";
 import { SearchBar } from "@/components/search/search-bar";
 import { SearchResults } from "@/components/search/search-results";
 import { CategoryBrowser } from "@/components/search/category-browser";
+import { LearningNudge } from "@/components/search/learning-nudge";
 import { MicButton } from "@/components/voice/mic-button";
 import { useVoiceMode, useVoiceCommands } from "@/components/voice/voice-mode-provider";
 
@@ -141,6 +142,7 @@ export function SearchExperience({
           <CategoryBrowser onPick={runSearch} />
         </div>
       )}
+      <LearningNudge result={result} />
     </div>
   );
 }

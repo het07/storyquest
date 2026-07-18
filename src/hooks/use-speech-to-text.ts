@@ -43,7 +43,14 @@ export function useSpeechToText({ onResult, onInterim }: Options = {}) {
   const chunksRef = React.useRef<Blob[]>([]);
   const streamRef = React.useRef<MediaStream | null>(null);
 
-  const hasWebSpeech = React.useMemo(() => !!getSpeechRecognition(), []);
+  // Detected after mount so the first client render matches the server (which
+  // has no SpeechRecognition). Setting this during render would flip support
+  // from false→true on hydration and corrupt the DOM (hydration mismatch).
+  const [hasWebSpeech, setHasWebSpeech] = React.useState(false);
+  React.useEffect(() => {
+    setHasWebSpeech(!!getSpeechRecognition());
+  }, []);
+
   const provider: Provider = WISPR_ENABLED
     ? "wispr"
     : hasWebSpeech

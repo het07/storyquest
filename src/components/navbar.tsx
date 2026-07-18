@@ -14,6 +14,7 @@ import { VoiceModeToggle } from "@/components/voice/voice-mode-toggle";
 const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/explore", label: "Explore" },
+  { href: "/arena", label: "Arena" },
   { href: "/dashboard", label: "Dashboard" },
 ];
 

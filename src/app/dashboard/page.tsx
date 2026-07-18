@@ -6,6 +6,7 @@ import {
   Flame,
   GraduationCap,
   Sparkles,
+  Swords,
   Target,
   TrendingUp,
 } from "lucide-react";
@@ -13,6 +14,7 @@ import {
 import { auth } from "@/auth";
 import { resolveIdentity } from "@/lib/identity";
 import { getDashboardStats } from "@/lib/stats";
+import { getRating } from "@/lib/arena-db";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import { StatCard } from "@/components/dashboard/stat-card";
@@ -28,8 +30,12 @@ export const metadata: Metadata = {
 
 export default async function DashboardPage() {
   const [{ ownerId }, session] = await Promise.all([resolveIdentity(), auth()]);
-  const stats = await getDashboardStats(ownerId);
+  const [stats, arena] = await Promise.all([
+    getDashboardStats(ownerId),
+    getRating(ownerId, "global"),
+  ]);
   const firstName = session?.user?.name?.split(" ")[0];
+  const arenaMatches = arena.wins + arena.losses + arena.draws;
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
@@ -96,6 +102,26 @@ export default async function DashboardPage() {
               )}
             </section>
           </div>
+
+          <section className="flex flex-col items-start gap-4 rounded-2xl border border-primary/30 bg-primary/5 p-5 sm:flex-row sm:items-center">
+            <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand-gradient text-white">
+              <Swords className="size-5" />
+            </span>
+            <div className="flex-1">
+              <h2 className="font-semibold">Knowledge Arena</h2>
+              <p className="text-sm text-muted-foreground">
+                {arenaMatches > 0
+                  ? `Rating ${arena.rating} · ${arena.wins}W · ${arena.losses}L · ${arena.draws}D`
+                  : "Challenge friends on a topic you've explored — everyone plays the same questions."}
+              </p>
+            </div>
+            <Link
+              href="/arena"
+              className={cn(buttonVariants({ variant: "outline" }), "rounded-full")}
+            >
+              {arenaMatches > 0 ? "View Arena" : "Enter Arena"}
+            </Link>
+          </section>
 
           {stats.recentTopics.length > 0 && (
             <section className="rounded-2xl border border-border/60 bg-card p-5">

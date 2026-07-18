@@ -29,15 +29,19 @@ export async function POST() {
   }
 
   try {
-    const { searchQueries, quizAttempts } = await collections();
+    const userId = session.user.id;
+    const { searchQueries, quizAttempts, questionPacks, arenaMatches } =
+      await collections();
     await Promise.all([
-      searchQueries.updateMany(
-        { ownerId: guestId },
-        { $set: { ownerId: session.user.id } }
-      ),
-      quizAttempts.updateMany(
-        { ownerId: guestId },
-        { $set: { ownerId: session.user.id } }
+      searchQueries.updateMany({ ownerId: guestId }, { $set: { ownerId: userId } }),
+      quizAttempts.updateMany({ ownerId: guestId }, { $set: { ownerId: userId } }),
+      questionPacks.updateMany({ createdBy: guestId }, { $set: { createdBy: userId } }),
+      arenaMatches.updateMany({ createdBy: guestId }, { $set: { createdBy: userId } }),
+      // Re-own any duel results the guest recorded (guest play was unrated).
+      arenaMatches.updateMany(
+        { "results.ownerId": guestId },
+        { $set: { "results.$[r].ownerId": userId, "results.$[r].isGuest": false } },
+        { arrayFilters: [{ "r.ownerId": guestId }] }
       ),
     ]);
   } catch (error) {
