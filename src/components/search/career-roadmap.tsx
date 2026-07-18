@@ -187,7 +187,6 @@ function RoadmapFlow({
       fitViewOptions={{ padding: 0.2 }}
       nodesDraggable={false}
       nodesConnectable={false}
-      nodesSelectable
       elementsSelectable
       selectNodesOnDrag={false}
       nodeClickDistance={0}
