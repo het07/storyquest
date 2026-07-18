@@ -8,11 +8,10 @@ import { cn } from "@/lib/utils";
 import { useVoiceMode } from "@/components/voice/voice-mode-provider";
 
 const HINTS = [
+  "Speak anytime to interrupt",
   "\u201cExplore black holes\u201d",
-  "\u201cRead\u201d / \u201cRepeat\u201d",
-  "\u201cTest me\u201d",
-  "\u201cA\u201d \u00b7 \u201cB\u201d \u00b7 \u201cNext\u201d",
-  "\u201cGo to dashboard\u201d",
+  "\u201cRead\u201d \u00b7 \u201cStudy in depth\u201d",
+  "\u201cTest me\u201d \u00b7 \u201cA\u201d \u00b7 \u201cNext\u201d",
   "\u201cStop\u201d / \u201cGoodbye\u201d",
 ];
 
@@ -65,7 +64,7 @@ export function VoiceStatus() {
               <div className="leading-tight">
                 <p className="text-sm font-semibold">{status}</p>
                 <p className="text-xs text-muted-foreground">
-                  Hands-free voice mode
+                  {speaking ? "Speak to interrupt" : "Hands-free · always listening"}
                 </p>
               </div>
             </div>

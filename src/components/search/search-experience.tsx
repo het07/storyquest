@@ -13,9 +13,9 @@ import { useVoiceMode, useVoiceCommands } from "@/components/voice/voice-mode-pr
 
 function buildNarration(result: SearchResult): string {
   const takeaways = result.keyTakeaways.length
-    ? ` Here are the key takeaways. ${result.keyTakeaways.join(". ")}.`
+    ? ` Key takeaways: ${result.keyTakeaways.join(". ")}.`
     : "";
-  return `${result.tldr}${takeaways} Say test me to take a quiz, or explore, then another topic.`;
+  return `${result.tldr}${takeaways}`;
 }
 
 export function SearchExperience({

@@ -38,3 +38,25 @@ export interface Quiz {
   difficulty: Difficulty;
   questions: QuizQuestion[];
 }
+
+/** A richer study guide generated when the learner wants to go deeper. */
+export interface DeepDiveSection {
+  title: string;
+  content: string;
+  keyPoints: string[];
+}
+
+export interface DeepDiveMisconception {
+  myth: string;
+  reality: string;
+}
+
+export interface DeepDive {
+  topic: string;
+  overview: string;
+  sections: DeepDiveSection[];
+  examples: string[];
+  misconceptions: DeepDiveMisconception[];
+  /** Follow-up questions the learner can explore next. */
+  furtherQuestions: string[];
+}

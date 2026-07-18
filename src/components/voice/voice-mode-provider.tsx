@@ -69,6 +69,32 @@ const STOP_SPEAK_RE = /\b(stop|quiet|silence|shut up|be quiet|enough)\b/;
 const DISABLE_VOICE_RE =
   /\b(turn off (voice|hands[- ]?free)|stop listening|exit voice|goodbye|good bye|disable voice)\b/;
 const STORAGE_KEY = "sqa:voice-mode";
+/** Restart recognition almost immediately — keep the loop feeling live. */
+const RESTART_MS = 40;
+/** Min interim chars before we treat speech as a barge-in interrupt. */
+const BARGE_IN_CHARS = 2;
+
+function normalizeVoiceText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Ignore STT that is just hearing our own TTS through the speakers. */
+function isLikelyEcho(heard: string, spoken: string): boolean {
+  const h = normalizeVoiceText(heard);
+  const s = normalizeVoiceText(spoken);
+  if (!h || !s || h.length < 2) return false;
+  if (s.includes(h)) return true;
+  const hw = h.split(" ").filter(Boolean);
+  const sw = new Set(s.split(" ").filter(Boolean));
+  if (hw.length === 0) return false;
+  let overlap = 0;
+  for (const w of hw) if (sw.has(w)) overlap += 1;
+  return overlap / hw.length >= 0.65;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getSpeechRecognition(): any {
@@ -90,7 +116,6 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
 
   const enabledRef = React.useRef(false);
   const speakingRef = React.useRef(false);
-  const suppressRef = React.useRef(false); // pause STT while TTS speaks
   const activeRef = React.useRef(false); // recognition currently running
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = React.useRef<any>(null);
@@ -98,6 +123,7 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
   const lastSpokenRef = React.useRef("");
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const urlRef = React.useRef<string | null>(null);
+  const restartTimerRef = React.useRef<number | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const startRef = React.useRef<() => void>(() => {});
   const disableRef = React.useRef<() => void>(() => {});
@@ -115,14 +141,22 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const scheduleListen = React.useCallback((delay = RESTART_MS) => {
+    if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = window.setTimeout(() => {
+      restartTimerRef.current = null;
+      if (enabledRef.current) startRef.current();
+    }, delay);
+  }, []);
+
   /* --------------------------- Text to speech --------------------------- */
 
   const finishSpeaking = React.useCallback(() => {
     speakingRef.current = false;
     setSpeaking(false);
-    suppressRef.current = false;
-    if (enabledRef.current) startRef.current();
-  }, []);
+    // Mic should already be open for barge-in; only restart if it dropped.
+    if (enabledRef.current && !activeRef.current) scheduleListen(0);
+  }, [scheduleListen]);
 
   const stopSpeaking = React.useCallback(
     (opts?: { resume?: boolean }) => {
@@ -138,36 +172,32 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
       if (browserTts) window.speechSynthesis.cancel();
       speakingRef.current = false;
       setSpeaking(false);
-      // Resume listening after an interrupt (e.g. user said "stop").
-      // Do NOT resume when speak() is about to start a new utterance.
-      if (opts?.resume) {
-        suppressRef.current = false;
-        if (enabledRef.current) {
-          window.setTimeout(() => startRef.current(), 250);
-        }
+      if (opts?.resume !== false && enabledRef.current && !activeRef.current) {
+        scheduleListen(0);
       }
     },
-    [browserTts]
+    [browserTts, scheduleListen]
   );
+
+  const bargeIn = React.useCallback(() => {
+    if (!speakingRef.current) return;
+    // Cut TTS immediately so the user is heard without waiting for the end.
+    stopSpeaking({ resume: false });
+    if (enabledRef.current && !activeRef.current) scheduleListen(0);
+  }, [scheduleListen, stopSpeaking]);
 
   const speak = React.useCallback(
     async (text: string) => {
       const clean = text?.trim();
       if (!clean) return;
 
-      stopSpeaking();
+      stopSpeaking({ resume: false });
       lastSpokenRef.current = clean;
-
-      // Pause listening so the mic doesn't transcribe our own voice.
-      suppressRef.current = true;
-      try {
-        recognitionRef.current?.stop?.();
-      } catch {
-        /* ignore */
-      }
-
       speakingRef.current = true;
       setSpeaking(true);
+
+      // Keep the mic open while speaking so the user can interrupt (barge-in).
+      if (enabledRef.current && !activeRef.current) scheduleListen(0);
 
       try {
         const res = await fetch("/api/tts", {
@@ -175,8 +205,12 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: clean }),
         });
+        // User may have barged in while we waited on the network.
+        if (!speakingRef.current) return;
+
         if (res.ok) {
           const blob = await res.blob();
+          if (!speakingRef.current) return;
           const url = URL.createObjectURL(blob);
           urlRef.current = url;
           const audio = new Audio(url);
@@ -190,6 +224,8 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         /* fall through to browser synth */
       }
 
+      if (!speakingRef.current) return;
+
       if (browserTts) {
         const utterance = new SpeechSynthesisUtterance(clean);
         utterance.onend = finishSpeaking;
@@ -199,18 +235,22 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         finishSpeaking();
       }
     },
-    [browserTts, finishSpeaking, stopSpeaking]
+    [browserTts, finishSpeaking, scheduleListen, stopSpeaking]
   );
 
   /* -------------------------- Speech to text ---------------------------- */
 
   const handleTranscript = React.useCallback(
     (raw: string) => {
-      const t = raw
-        .toLowerCase()
-        .trim()
-        .replace(/[.?!,]+$/, "");
+      const t = normalizeVoiceText(raw).replace(/[.?!,]+$/g, "");
       if (!t) return;
+
+      // Ignore speaker bleed from our own TTS.
+      if (isLikelyEcho(t, lastSpokenRef.current)) return;
+
+      // User spoke while we were talking — cut audio, then handle the command.
+      if (speakingRef.current) bargeIn();
+
       setLastCommand(raw.trim());
 
       // Turn off hands-free mode entirely by voice.
@@ -219,9 +259,9 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Universal interrupt: "stop" always silences TTS (listening resumes).
+      // Universal interrupt: "stop" silences TTS (listening stays on).
       if (STOP_SPEAK_RE.test(t)) {
-        if (speakingRef.current) stopSpeaking({ resume: true });
+        stopSpeaking({ resume: true });
         return;
       }
 
@@ -239,17 +279,18 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         }
       }
     },
-    [stopSpeaking]
+    [bargeIn, stopSpeaking]
   );
 
   const startRecognition = React.useCallback(() => {
     const SR = getSpeechRecognition();
-    if (!SR || activeRef.current) return;
+    if (!SR || activeRef.current || !enabledRef.current) return;
 
     const rec = new SR();
     rec.lang = "en-US";
     rec.continuous = true;
     rec.interimResults = true;
+    rec.maxAlternatives = 1;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onresult = (event: any) => {
@@ -264,7 +305,19 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
           interim += txt;
         }
       }
-      if (interim) setTranscript(interim.trim());
+      if (interim) {
+        const trimmed = interim.trim();
+        setTranscript(trimmed);
+        // Barge-in as soon as we hear the user start talking (interim),
+        // without waiting for the final transcript.
+        if (
+          speakingRef.current &&
+          trimmed.length >= BARGE_IN_CHARS &&
+          !isLikelyEcho(trimmed, lastSpokenRef.current)
+        ) {
+          bargeIn();
+        }
+      }
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -278,17 +331,16 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         });
         enabledRef.current = false;
         setEnabled(false);
-        stopSpeaking();
+        stopSpeaking({ resume: false });
+        return;
       }
+      // "aborted" / "no-speech" are normal — restart quickly below via onend.
     };
 
     rec.onend = () => {
       activeRef.current = false;
       setListening(false);
-      // Auto-restart to keep listening (unless we're intentionally paused/off).
-      if (enabledRef.current && !suppressRef.current) {
-        window.setTimeout(() => startRef.current(), 300);
-      }
+      if (enabledRef.current) scheduleListen(RESTART_MS);
     };
 
     recognitionRef.current = rec;
@@ -298,8 +350,9 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
       setListening(true);
     } catch {
       activeRef.current = false;
+      if (enabledRef.current) scheduleListen(RESTART_MS);
     }
-  }, [handleTranscript, stopSpeaking]);
+  }, [bargeIn, handleTranscript, scheduleListen, stopSpeaking]);
 
   React.useEffect(() => {
     startRef.current = startRecognition;
@@ -317,7 +370,7 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
     }
     startRef.current();
     void speak(
-      "Hands-free voice mode is on. Say explore, then a topic. Say read for the summary, test me for a quiz, help for all commands, or goodbye to turn me off."
+      "Voice mode on. Speak anytime to interrupt. Say explore, then a topic — or study in depth."
     );
   }, [speak]);
 
@@ -329,7 +382,11 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* ignore */
     }
-    stopSpeaking();
+    if (restartTimerRef.current) {
+      window.clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    stopSpeaking({ resume: false });
     try {
       recognitionRef.current?.stop?.();
     } catch {
@@ -357,14 +414,13 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         description: "Hear the list of commands",
         run: () =>
           void speak(
-            "Here is what you can say. Explore, then a topic, to search. Read, to hear the summary. Repeat, to hear it again. Test me, to start a quiz. During a quiz, say A, B, C, or D to answer, and next for the next question. Go to dashboard, or go home, to move around. Say stop to quiet me. Say goodbye to turn voice mode off."
+            "Commands: explore a topic. Read. Study in depth. Test me. A B C or D in a quiz. Next. Dashboard. Home. Stop. Goodbye."
           ),
       },
       {
         pattern: /\b(go\s+(to\s+)?)?(dashboard|my progress|profile)\b/,
         description: "Go to your dashboard",
         run: () => {
-          void speak("Opening your dashboard.");
           router.push("/dashboard");
         },
       },
@@ -372,7 +428,6 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         pattern: /^(open |go to )?(explore|browse)$/,
         description: "Open the explore page",
         run: () => {
-          void speak("Opening explore.");
           router.push("/explore");
         },
       },
@@ -380,7 +435,6 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         pattern: /\b(go\s+(to\s+)?)?home(\s+page)?\b|take me home/,
         description: "Go to the home page",
         run: () => {
-          void speak("Going home.");
           router.push("/");
         },
       },
@@ -391,7 +445,7 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         run: (m) => {
           const q = m[1]?.trim();
           if (q) {
-            void speak(`Searching for ${q}.`);
+            // Navigate immediately — no spoken delay before the search starts.
             router.push(`/explore?topic=${encodeURIComponent(q)}`);
           }
         },
@@ -407,7 +461,6 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         pattern: /\b(sign in|log in|login)\b/,
         description: "Sign in with Google",
         run: () => {
-          void speak("Opening Google sign in.");
           void import("next-auth/react").then(({ signIn }) =>
             signIn("google", { callbackUrl: "/dashboard" })
           );
@@ -428,28 +481,28 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
     setSupported(!!getSpeechRecognition());
   }, []);
 
-  // Stop talking (and pause listening) when the tab is hidden.
+  // Stop talking when the tab is hidden; resume listening when visible again.
   React.useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
-        stopSpeaking();
+        stopSpeaking({ resume: false });
         try {
           recognitionRef.current?.stop?.();
         } catch {
           /* ignore */
         }
-      } else if (enabledRef.current && !suppressRef.current) {
-        startRef.current();
+      } else if (enabledRef.current) {
+        scheduleListen(0);
       }
     };
-    const onPageHide = () => stopSpeaking();
+    const onPageHide = () => stopSpeaking({ resume: false });
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
     };
-  }, [stopSpeaking]);
+  }, [scheduleListen, stopSpeaking]);
 
   // Keyboard shortcut: Alt+V toggles hands-free mode (works with switch / mouth-stick assistive tech).
   React.useEffect(() => {
@@ -469,12 +522,17 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
   // Clean up on unmount.
   React.useEffect(() => {
     return () => {
+      enabledRef.current = false;
+      if (restartTimerRef.current) {
+        window.clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = null;
+      }
       try {
         recognitionRef.current?.stop?.();
       } catch {
         /* ignore */
       }
-      stopSpeaking();
+      stopSpeaking({ resume: false });
     };
   }, [stopSpeaking]);
 

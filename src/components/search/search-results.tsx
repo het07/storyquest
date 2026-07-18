@@ -9,6 +9,7 @@ import { ConceptMap } from "@/components/search/concept-map";
 import { SourceCard } from "@/components/search/source-card";
 import { ListenButton } from "@/components/voice/listen-button";
 import { QuizButton } from "@/components/quiz/quiz-button";
+import { StudyInDepth } from "@/components/search/study-in-depth";
 
 function buildNarration(result: SearchResult): string {
   const takeaways = result.keyTakeaways.length
@@ -95,6 +96,11 @@ export function SearchResults({
             {quizSlot}
           </>
         }
+      />
+
+      <StudyInDepth
+        result={result}
+        onExploreQuestion={onConceptSelect}
       />
 
       <div className="grid gap-6 lg:grid-cols-2">

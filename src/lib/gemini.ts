@@ -1,6 +1,13 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-import type { Difficulty, Quiz, QuizQuestion, SearchResult, SearchSource } from "@/types";
+import type {
+  DeepDive,
+  Difficulty,
+  Quiz,
+  QuizQuestion,
+  SearchResult,
+  SearchSource,
+} from "@/types";
 
 export function isGeminiConfigured() {
   return !!process.env.GEMINI_API_KEY;
@@ -192,4 +199,101 @@ export async function generateQuiz(args: {
   }
 
   return { topic: args.topic, difficulty, questions };
+}
+
+interface GeminiDeepDiveShape {
+  overview: string;
+  sections: { title: string; content: string; keyPoints?: string[] }[];
+  examples: string[];
+  misconceptions: { myth: string; reality: string }[];
+  furtherQuestions: string[];
+}
+
+const DEEP_DIVE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    overview: { type: Type.STRING },
+    sections: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          content: { type: Type.STRING },
+          keyPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ["title", "content"],
+      },
+    },
+    examples: { type: Type.ARRAY, items: { type: Type.STRING } },
+    misconceptions: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          myth: { type: Type.STRING },
+          reality: { type: Type.STRING },
+        },
+        required: ["myth", "reality"],
+      },
+    },
+    furtherQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: [
+    "overview",
+    "sections",
+    "examples",
+    "misconceptions",
+    "furtherQuestions",
+  ],
+};
+
+/**
+ * Builds a structured in-depth study guide for learners who want more than
+ * the TL;DR — sections, examples, common misconceptions, and next questions.
+ */
+export async function generateDeepDive(args: {
+  topic: string;
+  context?: string;
+  difficulty?: Difficulty;
+}): Promise<DeepDive> {
+  const difficulty = args.difficulty ?? "intermediate";
+
+  const data = await generateJson<GeminiDeepDiveShape>({
+    systemInstruction:
+      "You are a patient, expert tutor writing an in-depth study guide. " +
+      "Go beyond a surface summary: explain mechanisms, use concrete examples, " +
+      "correct common misconceptions, and suggest what to explore next. " +
+      "Be accurate, clear, and engaging — no fluff.",
+    prompt:
+      `Write an in-depth study guide about "${args.topic}" at a ${difficulty} level.\n` +
+      "Return: a richer overview (4-6 sentences), 3-5 titled sections (each with a " +
+      "paragraph and 2-4 key points), 2-4 concrete examples, 2-3 common misconceptions " +
+      "(myth + reality), and 3-5 further questions worth exploring next." +
+      (args.context
+        ? `\n\nGround the guide in this material the learner already saw:\n${args.context}`
+        : ""),
+    responseSchema: DEEP_DIVE_SCHEMA,
+  });
+
+  const sections = (data.sections ?? [])
+    .filter((s) => s.title && s.content)
+    .map((s) => ({
+      title: s.title,
+      content: s.content,
+      keyPoints: s.keyPoints ?? [],
+    }));
+
+  if (!data.overview || sections.length === 0) {
+    throw new Error("Could not generate a deep-dive guide for this topic.");
+  }
+
+  return {
+    topic: args.topic,
+    overview: data.overview,
+    sections,
+    examples: data.examples ?? [],
+    misconceptions: (data.misconceptions ?? []).filter((m) => m.myth && m.reality),
+    furtherQuestions: data.furtherQuestions ?? [],
+  };
 }
