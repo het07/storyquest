@@ -7,6 +7,14 @@ import { TldrCard } from "@/components/search/tldr-card";
 import { KeyTakeaways } from "@/components/search/key-takeaways";
 import { ConceptMap } from "@/components/search/concept-map";
 import { SourceCard } from "@/components/search/source-card";
+import { ListenButton } from "@/components/voice/listen-button";
+
+function buildNarration(result: SearchResult): string {
+  const takeaways = result.keyTakeaways.length
+    ? ` Key takeaways: ${result.keyTakeaways.join(". ")}.`
+    : "";
+  return `${result.tldr}${takeaways}`;
+}
 
 function Skeleton({ className }: { className?: string }) {
   return <div className={`animate-pulse rounded-lg bg-muted ${className ?? ""}`} />;
@@ -75,7 +83,12 @@ export function SearchResults({
         tldr={result.tldr}
         difficulty={result.difficulty}
         provider={result.source}
-        actions={quizSlot}
+        actions={
+          <>
+            <ListenButton text={buildNarration(result)} label="Listen" />
+            {quizSlot}
+          </>
+        }
       />
 
       <div className="grid gap-6 lg:grid-cols-2">

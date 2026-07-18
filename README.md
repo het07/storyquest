@@ -77,7 +77,7 @@ Open [http://localhost:3000](http://localhost:3000).
 - **Phase 2** — MongoDB + Auth.js (Google OAuth + guest mode) ✅
 - **Phase 3** — Exa search with visual, easy-to-understand results ✅
 - **Phase 4** — Trending topics + category browsing ✅
-- **Phase 5** — Voice (Wispr/Web Speech STT, ElevenLabs/browser TTS)
+- **Phase 5** — Voice: STT (Wispr Flow → Web Speech fallback) + TTS (ElevenLabs → browser fallback) ✅
 - **Phase 6** — Quiz system (Gemini-generated MCQs)
 - **Phase 7** — Dashboard (streaks, XP, charts)
 - **Phase 8** — Polish

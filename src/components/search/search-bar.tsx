@@ -20,7 +20,7 @@ export function SearchBar({
   onSearch: (query: string) => void;
   loading?: boolean;
   autoFocus?: boolean;
-  /** Slot for the voice-input mic button (wired in a later phase). */
+  /** Slot for the voice-input mic button. */
   rightSlot?: React.ReactNode;
   className?: string;
 }) {

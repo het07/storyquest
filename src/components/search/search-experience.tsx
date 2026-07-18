@@ -8,6 +8,7 @@ import type { SearchResult } from "@/types";
 import { SearchBar } from "@/components/search/search-bar";
 import { SearchResults } from "@/components/search/search-results";
 import { CategoryBrowser } from "@/components/search/category-browser";
+import { MicButton } from "@/components/voice/mic-button";
 
 export function SearchExperience({
   initialQuery = "",
@@ -89,6 +90,16 @@ export function SearchExperience({
         onSearch={runSearch}
         loading={loading}
         autoFocus={!initialQuery}
+        rightSlot={
+          <MicButton
+            onInterim={setQuery}
+            onTranscript={(text) => {
+              setQuery(text);
+              runSearch(text);
+            }}
+            disabled={loading}
+          />
+        }
       />
       {result || loading || error ? (
         <SearchResults
