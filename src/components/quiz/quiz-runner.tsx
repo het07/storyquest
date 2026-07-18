@@ -67,23 +67,40 @@ export function QuizRunner({
     setAnswers([]);
     setSelected(null);
     setXp(null);
-    try {
-      const res = await fetch("/api/quiz", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, context, difficulty }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Couldn't build a quiz.");
+
+    // Server retries Exa up to 4× (10s apart) then falls back to Gemini.
+    // Client only retries brief network blips — not the full Exa loop again.
+    const maxAttempts = 2;
+    let lastError = "Couldn't build a quiz.";
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetch("/api/quiz", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ topic, context, difficulty }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          lastError = data.error || "Couldn't build a quiz.";
+          // Don't re-run the long server Exa loop on 502; user can tap Try again.
+          break;
+        }
+
+        const data: Quiz = await res.json();
+        setQuiz(data);
+        setPhase("playing");
+        return;
+      } catch (err) {
+        lastError = (err as Error).message || "Couldn't build a quiz.";
+        if (attempt === maxAttempts) break;
+        await new Promise((r) => setTimeout(r, 1000));
       }
-      const data: Quiz = await res.json();
-      setQuiz(data);
-      setPhase("playing");
-    } catch (err) {
-      setError((err as Error).message);
-      setPhase("error");
     }
+
+    setError(lastError);
+    setPhase("error");
   }, [topic, context, difficulty]);
 
   React.useEffect(() => {
@@ -232,7 +249,8 @@ export function QuizRunner({
         <Loader2 className="size-8 animate-spin text-primary" />
         <p className="font-medium">Building your quiz…</p>
         <p className="text-sm text-muted-foreground">
-          Generating questions about {topic}.
+          Generating questions about {topic}. This can take up to a minute if we
+          need to retry.
         </p>
       </div>
     );

@@ -6,6 +6,8 @@ import type {
   DeepDiveMisconception,
   DeepDiveSection,
   Difficulty,
+  Quiz,
+  QuizQuestion,
   RoadmapLevel,
   RoadmapStage,
   SearchResult,
@@ -497,5 +499,121 @@ export async function generateDeepDiveWithExa(args: {
         .slice(0, 5),
       source: "exa" as const,
     };
+  });
+}
+
+/**
+ * Fits Exa's max 10 properties / depth 2 — one top-level array of question objects.
+ */
+const QUIZ_OUTPUT_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    questions: {
+      type: "array",
+      description: "3-5 multiple-choice questions testing real understanding.",
+      items: {
+        type: "object",
+        properties: {
+          question: {
+            type: "string",
+            description: "Clear question stem.",
+          },
+          options: {
+            type: "array",
+            items: { type: "string" },
+            description: "Exactly 4 answer choices.",
+          },
+          correctIndex: {
+            type: "number",
+            description: "Index 0-3 of the single correct option.",
+          },
+          explanation: {
+            type: "string",
+            description: "Short explanation of why the correct answer is right.",
+          },
+        },
+        required: ["question", "options", "correctIndex", "explanation"],
+      },
+    },
+  },
+  required: ["questions"],
+};
+
+const QUIZ_SYSTEM_PROMPT =
+  "You are an expert quiz writer. Using real web sources about the topic, " +
+  "write clear multiple-choice questions that test genuine understanding, not " +
+  "trivia. Each question must have exactly 4 options, exactly one correct " +
+  "answer (correctIndex 0-3), plausible distractors, and a concise explanation.";
+
+interface ExaQuizOutput {
+  questions?: {
+    question?: string;
+    options?: string[];
+    correctIndex?: number;
+    explanation?: string;
+  }[];
+}
+
+/**
+ * Generates a multiple-choice quiz with Exa search + structured output.
+ * Throws {@link RateLimitedError} when the 10 QPS cap would be exceeded.
+ */
+export async function generateQuizWithExa(args: {
+  topic: string;
+  context?: string;
+  difficulty?: Difficulty;
+  numQuestions?: number;
+}): Promise<Quiz> {
+  const gate = exaSearchLimiter.tryAcquire();
+  if (!gate.allowed) throw new RateLimitedError(gate.retryAfterMs);
+
+  const difficulty = args.difficulty ?? "intermediate";
+  const count = Math.min(Math.max(args.numQuestions ?? 5, 3), 5);
+  const query = [
+    `Multiple choice quiz questions about ${args.topic}`,
+    `at ${difficulty} level`,
+    `${count} questions testing understanding`,
+    args.context ? `Grounding: ${args.context.slice(0, 400)}` : "",
+  ]
+    .filter(Boolean)
+    .join(". ");
+
+  return withExa(async (exa) => {
+    const response = await exa.searchAndContents(query, {
+      type: "auto",
+      numResults: 5,
+      summary: true,
+      systemPrompt: QUIZ_SYSTEM_PROMPT,
+      outputSchema: QUIZ_OUTPUT_SCHEMA,
+    });
+
+    const content = response.output?.content;
+    const structured: ExaQuizOutput =
+      content && typeof content === "object" ? (content as ExaQuizOutput) : {};
+
+    const questions: QuizQuestion[] = (structured.questions ?? [])
+      .filter(
+        (q) =>
+          !!q.question?.trim() &&
+          Array.isArray(q.options) &&
+          q.options.filter(Boolean).length === 4 &&
+          typeof q.correctIndex === "number" &&
+          q.correctIndex >= 0 &&
+          q.correctIndex <= 3
+      )
+      .slice(0, count)
+      .map((q, i) => ({
+        id: `q${i + 1}`,
+        question: q.question!.trim(),
+        options: q.options!.filter(Boolean).slice(0, 4),
+        correctIndex: q.correctIndex!,
+        explanation: q.explanation?.trim() || "",
+      }));
+
+    if (questions.length === 0) {
+      throw new Error("Exa returned an incomplete quiz.");
+    }
+
+    return { topic: args.topic, difficulty, questions };
   });
 }
