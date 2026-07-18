@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { signIn } from "next-auth/react";
 
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 
 function GoogleIcon({ className }: { className?: string }) {
@@ -28,64 +28,14 @@ function GoogleIcon({ className }: { className?: string }) {
   );
 }
 
-interface OAuthButtonsProps {
-  /** Whether the current user is an anonymous guest (link vs. fresh sign-in). */
-  isGuest?: boolean;
-  /** Where to land after auth completes. */
-  next?: string;
-  className?: string;
-}
-
 export function OAuthButtons({
-  isGuest = false,
   next = "/dashboard",
   className,
-}: OAuthButtonsProps) {
+}: {
+  next?: string;
+  className?: string;
+}) {
   const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
-  async function signInWithGoogle() {
-    setLoading(true);
-    setError(null);
-
-    const supabase = createClient();
-    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
-      next
-    )}`;
-
-    // Guests: link Google to the SAME user id so progress is preserved.
-    // Fresh visitors: standard OAuth sign-in.
-    const { data, error } = isGuest
-      ? await supabase.auth.linkIdentity({
-          provider: "google",
-          options: { redirectTo },
-        })
-      : await supabase.auth.signInWithOAuth({
-          provider: "google",
-          options: { redirectTo },
-        });
-
-    if (error) {
-      // linkIdentity requires "Manual Linking" enabled; fall back to sign-in.
-      if (isGuest) {
-        const fallback = await supabase.auth.signInWithOAuth({
-          provider: "google",
-          options: { redirectTo },
-        });
-        if (fallback.data?.url) {
-          window.location.href = fallback.data.url;
-          return;
-        }
-      }
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
-
-    if (data?.url) {
-      window.location.href = data.url;
-    }
-  }
 
   return (
     <div className={className}>
@@ -94,12 +44,14 @@ export function OAuthButtons({
         variant="outline"
         className="w-full gap-2"
         disabled={loading}
-        onClick={signInWithGoogle}
+        onClick={() => {
+          setLoading(true);
+          void signIn("google", { callbackUrl: next });
+        }}
       >
         <GoogleIcon className="size-4" />
         {loading ? "Redirecting…" : "Continue with Google"}
       </Button>
-      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
     </div>
   );
 }

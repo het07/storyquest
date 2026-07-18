@@ -3,9 +3,11 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 import { ThemeProvider } from "@/components/theme-provider";
+import { AuthSessionProvider } from "@/components/session-provider";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { GuestBanner } from "@/components/auth/guest-banner";
+import { GuestMigrator } from "@/components/auth/guest-migrator";
 import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
@@ -47,18 +49,21 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <Navbar />
-          <GuestBanner />
-          <main className="flex flex-1 flex-col">{children}</main>
-          <Footer />
-          <Toaster richColors position="top-center" />
-        </ThemeProvider>
+        <AuthSessionProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            <Navbar />
+            <GuestBanner />
+            <main className="flex flex-1 flex-col">{children}</main>
+            <Footer />
+            <Toaster richColors position="top-center" />
+            <GuestMigrator />
+          </ThemeProvider>
+        </AuthSessionProvider>
       </body>
     </html>
   );

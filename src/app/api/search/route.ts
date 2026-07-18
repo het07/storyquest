@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 
 import type { SearchResult } from "@/types";
-import { getCurrentUser } from "@/lib/supabase/server";
+import { resolveIdentity } from "@/lib/identity";
+import { collections } from "@/lib/db";
+import { isMongoConfigured } from "@/lib/mongodb";
 import { isExaConfigured, RateLimitedError, searchWithExa } from "@/lib/exa";
 import { fallbackSearch, isGeminiConfigured } from "@/lib/gemini";
-import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
@@ -72,19 +72,31 @@ export async function POST(request: Request) {
 }
 
 async function persistSearch(query: string, result: SearchResult) {
-  if (!process.env.DATABASE_URL) return;
+  if (!isMongoConfigured()) return;
   try {
-    const user = await getCurrentUser();
-    if (!user) return;
-    await prisma.searchQuery.create({
-      data: {
-        userId: user.id,
-        query,
-        source: result.source,
-        results: result as unknown as Prisma.InputJsonValue,
-      },
+    const { ownerId } = await resolveIdentity();
+    if (!ownerId) return;
+
+    const { searchQueries, topics } = await collections();
+
+    await searchQueries.insertOne({
+      ownerId,
+      query,
+      source: result.source,
+      results: result,
+      createdAt: new Date(),
     });
+
+    // Bump trending count when the query matches a curated topic.
+    await topics.updateOne(
+      { name: { $regex: `^${escapeRegex(query)}$`, $options: "i" } },
+      { $inc: { searchCount: 1 } }
+    );
   } catch (error) {
     console.error("[search] persistence skipped:", error);
   }
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

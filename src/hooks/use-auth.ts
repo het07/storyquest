@@ -1,54 +1,25 @@
 "use client";
 
-import * as React from "react";
-import type { User } from "@supabase/supabase-js";
-
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { useSession } from "next-auth/react";
 
 export interface AuthState {
-  user: User | null;
-  /** Signed in anonymously (guest). */
+  user: { id?: string; name?: string | null; email?: string | null; image?: string | null } | null;
+  /** Not signed in — browsing anonymously via the guest cookie. */
   isGuest: boolean;
-  /** Signed in with a permanent identity (email / OAuth). */
+  /** Signed in with a permanent identity (Google). */
   isAuthenticated: boolean;
   loading: boolean;
-  configured: boolean;
 }
 
 export function useAuth(): AuthState {
-  const [user, setUser] = React.useState<User | null>(null);
-  const [loading, setLoading] = React.useState(true);
-  const configured = isSupabaseConfigured();
-
-  React.useEffect(() => {
-    if (!configured) {
-      setLoading(false);
-      return;
-    }
-
-    const supabase = createClient();
-
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user);
-      setLoading(false);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [configured]);
-
-  const isGuest = !!user?.is_anonymous;
+  const { data, status } = useSession();
+  const loading = status === "loading";
+  const isAuthenticated = status === "authenticated";
 
   return {
-    user,
-    isGuest,
-    isAuthenticated: !!user && !user.is_anonymous,
+    user: data?.user ?? null,
+    isGuest: !isAuthenticated && !loading,
+    isAuthenticated,
     loading,
-    configured,
   };
 }

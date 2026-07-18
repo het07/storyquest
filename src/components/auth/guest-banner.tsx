@@ -14,12 +14,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { OAuthButtons } from "@/components/auth/oauth-buttons";
-import { UpgradeForm } from "@/components/auth/upgrade-form";
 
 const DISMISS_KEY = "sqa:guest-banner-dismissed";
 
 export function GuestBanner() {
-  const { isGuest, loading, configured } = useAuth();
+  const { isGuest, loading } = useAuth();
   const [dismissed, setDismissed] = React.useState(true);
   const [open, setOpen] = React.useState(false);
 
@@ -32,7 +31,7 @@ export function GuestBanner() {
     setDismissed(true);
   }
 
-  if (!configured || loading || !isGuest || dismissed) {
+  if (loading || !isGuest || dismissed) {
     return null;
   }
 
@@ -62,17 +61,7 @@ export function GuestBanner() {
                 current guest progress carries over automatically.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <OAuthButtons isGuest next="/dashboard" />
-              <div className="flex items-center gap-3">
-                <span className="h-px flex-1 bg-border" />
-                <span className="text-xs text-muted-foreground">
-                  or use email
-                </span>
-                <span className="h-px flex-1 bg-border" />
-              </div>
-              <UpgradeForm onSuccess={() => undefined} />
-            </div>
+            <OAuthButtons next="/dashboard" />
           </DialogContent>
         </Dialog>
         <Button

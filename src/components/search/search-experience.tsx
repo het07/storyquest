@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import type { SearchResult } from "@/types";
 import { SearchBar } from "@/components/search/search-bar";
 import { SearchResults } from "@/components/search/search-results";
+import { CategoryBrowser } from "@/components/search/category-browser";
 
 export function SearchExperience({
   initialQuery = "",
@@ -89,12 +90,21 @@ export function SearchExperience({
         loading={loading}
         autoFocus={!initialQuery}
       />
-      <SearchResults
-        result={result}
-        loading={loading}
-        error={error}
-        onConceptSelect={runSearch}
-      />
+      {result || loading || error ? (
+        <SearchResults
+          result={result}
+          loading={loading}
+          error={error}
+          onConceptSelect={runSearch}
+        />
+      ) : (
+        <div className="space-y-4">
+          <p className="text-center text-sm text-muted-foreground">
+            Or pick a topic to explore
+          </p>
+          <CategoryBrowser onPick={runSearch} />
+        </div>
+      )}
     </div>
   );
 }
