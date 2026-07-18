@@ -1,0 +1,40 @@
+// StoryQuest Arena — Prisma schema
+// Database: Supabase Postgres
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Pooled connection (PgBouncer) — used at runtime.
+  url       = env("DATABASE_URL")
+  // Direct connection — used for migrations / db push.
+  directUrl = env("DIRECT_URL")
+}
+
+/// A single topic search, attributed to the Supabase user (guest or permanent).
+model SearchQuery {
+  id        String   @id @default(cuid())
+  userId    String   @db.Uuid
+  query     String
+  source    String // "exa" | "gemini"
+  results   Json
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+/// Curated / trending topics surfaced on the landing and explore pages.
+model Topic {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  category    String
+  description String?
+  searchCount Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([category])
+}

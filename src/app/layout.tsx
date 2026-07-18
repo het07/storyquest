@@ -5,6 +5,8 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
+import { GuestBanner } from "@/components/auth/guest-banner";
+import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
   variable: "--font-sans",
@@ -52,8 +54,10 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <Navbar />
+          <GuestBanner />
           <main className="flex flex-1 flex-col">{children}</main>
           <Footer />
+          <Toaster richColors position="top-center" />
         </ThemeProvider>
       </body>
     </html>
