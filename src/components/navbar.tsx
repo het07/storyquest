@@ -8,6 +8,7 @@ import { Compass, Menu, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { UserMenu } from "@/components/auth/user-menu";
 
 const NAV_LINKS = [
   { href: "/", label: "Home" },
@@ -78,12 +79,13 @@ export function Navbar() {
           <Link
             href="/explore"
             className={cn(
-              buttonVariants(),
-              "hidden rounded-full sm:inline-flex"
+              buttonVariants({ variant: "outline" }),
+              "hidden rounded-full lg:inline-flex"
             )}
           >
             Start exploring
           </Link>
+          <UserMenu />
           <Button
             variant="ghost"
             size="icon"
