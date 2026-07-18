@@ -75,8 +75,19 @@ const OPEN_ENDED_SEARCH_RE =
 const STORAGE_KEY = "sqa:voice-mode";
 /** Restart recognition almost immediately — keep the loop feeling live. */
 const RESTART_MS = 0;
-/** Min interim chars before we treat speech as a barge-in interrupt. */
-const BARGE_IN_CHARS = 2;
+/**
+ * Min interim chars before we treat speech as a barge-in interrupt. Kept high
+ * enough that a stray cough/"uh" from across the room doesn't cut the speaker.
+ */
+const BARGE_IN_CHARS = 4;
+/**
+ * If recognition reports no audio/speech activity for this long while it's
+ * supposed to be listening, it has almost certainly gone into Chrome's silent
+ * "zombie" state (capturing stopped but `onend` never fired). Force a restart.
+ */
+const STUCK_MS = 12000;
+/** How often the watchdog checks that recognition is actually alive. */
+const WATCHDOG_MS = 4000;
 /**
  * Act this long after interim text stops changing — much faster than waiting
  * for the Web Speech API's `isFinal` (often 700ms–1.5s after you finish).
@@ -136,6 +147,10 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
   const urlRef = React.useRef<string | null>(null);
   const vadRef = React.useRef<VadController | null>(null);
   const restartTimerRef = React.useRef<number | null>(null);
+  const watchdogRef = React.useRef<number | null>(null);
+  // Timestamp of the last sign of life from the recognizer (start / audio /
+  // sound / speech / result). Fed to the watchdog to detect a dead session.
+  const lastActivityRef = React.useRef<number>(0);
   const interimCommitTimerRef = React.useRef<number | null>(null);
   const pendingInterimRef = React.useRef("");
   const lastHandledRef = React.useRef<{ text: string; at: number }>({
@@ -412,8 +427,18 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
     rec.interimResults = true;
     rec.maxAlternatives = 1;
 
+    // Any of these firing means the engine is genuinely alive and capturing.
+    const markAlive = () => {
+      lastActivityRef.current = Date.now();
+    };
+    rec.onstart = markAlive;
+    rec.onaudiostart = markAlive;
+    rec.onsoundstart = markAlive;
+    rec.onspeechstart = markAlive;
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onresult = (event: any) => {
+      markAlive();
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const r = event.results[i];
@@ -468,6 +493,7 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
 
     recognitionRef.current = rec;
     activeRef.current = true;
+    lastActivityRef.current = Date.now();
     try {
       rec.start();
       setListening(true);
@@ -487,6 +513,37 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     startRef.current = startRecognition;
   }, [startRecognition]);
+
+  // Watchdog: recover from Chrome's silent "stuck listening" state and re-arm
+  // the recognizer whenever it should be running but isn't.
+  React.useEffect(() => {
+    if (!enabled) return;
+    const id = window.setInterval(() => {
+      if (!enabledRef.current) return;
+      const idleMs = Date.now() - lastActivityRef.current;
+      if (activeRef.current) {
+        if (idleMs > STUCK_MS) {
+          // Engine went dead without an `onend`; abort and start fresh.
+          try {
+            recognitionRef.current?.abort?.();
+          } catch {
+            /* ignore */
+          }
+          activeRef.current = false;
+          setListening(false);
+          scheduleListen(0);
+        }
+      } else if (!restartTimerRef.current) {
+        // Enabled, nothing running, no restart pending — kick it back on.
+        scheduleListen(0);
+      }
+    }, WATCHDOG_MS);
+    watchdogRef.current = id;
+    return () => {
+      window.clearInterval(id);
+      watchdogRef.current = null;
+    };
+  }, [enabled, scheduleListen]);
 
   /* ------------------------------ Toggle -------------------------------- */
 

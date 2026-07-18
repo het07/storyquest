@@ -3,23 +3,29 @@
  *
  * While the assistant is speaking (TTS), the Web Speech recognizer mostly hears
  * our own audio coming back through the speakers, so relying on it to notice the
- * user talking is slow and unreliable. Instead we open a dedicated microphone
+ * user talking is slow and unreliable. Instead we briefly open a microphone
  * stream with echo cancellation enabled and watch its energy level: the browser
  * subtracts the speaker output, so what's left is (mostly) the user's real
  * voice. When sustained energy crosses a threshold we fire `onSpeech` so the
  * caller can cut the TTS immediately.
+ *
+ * IMPORTANT: the mic is only held while `start()`..`stop()` is active (i.e. only
+ * during TTS playback). During normal listening the stream is released so it
+ * never competes with the Web Speech recognizer for the microphone — holding a
+ * second persistent capture open can starve the recognizer and make it stop
+ * hearing entirely.
  */
 
 export interface VadController {
-  /** Acquire mic + audio graph. Call from a user gesture (e.g. enabling voice). */
+  /** Pre-request mic permission (from a user gesture) so barge-in is instant. */
   prime: () => Promise<boolean>;
   /** Start one-shot monitoring; `onSpeech` fires once when the user speaks. */
   start: (onSpeech: () => void) => void;
-  /** Pause monitoring (keeps the stream/graph alive for fast re-arming). */
+  /** Stop monitoring and release the microphone. */
   stop: () => void;
-  /** Tear everything down and release the mic. */
+  /** Tear everything down. */
   dispose: () => void;
-  /** Whether the mic + analyser are ready. */
+  /** Whether mic permission has been granted at least once. */
   readonly ready: boolean;
 }
 
@@ -42,22 +48,74 @@ function getAudioContext(): typeof AudioContext | null {
   return w.AudioContext || w.webkitAudioContext || null;
 }
 
+const MIC_CONSTRAINTS: MediaStreamConstraints = {
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  },
+};
+
 export function createVad(options: VadOptions = {}): VadController {
-  const threshold = options.threshold ?? 0.055;
-  const minVoicedFrames = options.minVoicedFrames ?? 5;
+  // Tuned to react to someone talking near the device while ignoring ambient
+  // room noise / distant background chatter.
+  const threshold = options.threshold ?? 0.08;
+  const minVoicedFrames = options.minVoicedFrames ?? 6;
   const warmupMs = options.warmupMs ?? 250;
 
-  let stream: MediaStream | null = null;
   let ctx: AudioContext | null = null;
-  let source: MediaStreamAudioSourceNode | null = null;
   let analyser: AnalyserNode | null = null;
   let data: Uint8Array<ArrayBuffer> | null = null;
+  let stream: MediaStream | null = null;
+  let source: MediaStreamAudioSourceNode | null = null;
 
   let monitoring = false;
   let rafId: number | null = null;
   let voicedFrames = 0;
   let armAt = 0;
+  let granted = false;
   let onSpeech: (() => void) | null = null;
+
+  const ensureContext = (): boolean => {
+    if (analyser) return true;
+    const AC = getAudioContext();
+    if (!AC) return false;
+    ctx = new AC();
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.2;
+    data = new Uint8Array(analyser.fftSize);
+    return true;
+  };
+
+  const releaseMic = () => {
+    try {
+      source?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    source = null;
+    stream?.getTracks().forEach((t) => t.stop());
+    stream = null;
+  };
+
+  const acquire = async (): Promise<boolean> => {
+    if (source) return true;
+    if (!ensureContext()) return false;
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      return false;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
+      source = ctx!.createMediaStreamSource(stream);
+      source.connect(analyser!);
+      granted = true;
+      return true;
+    } catch {
+      releaseMic();
+      return false;
+    }
+  };
 
   const rms = (): number => {
     if (!analyser || !data) return 0;
@@ -81,6 +139,7 @@ export function createVad(options: VadOptions = {}): VadController {
       if (voicedFrames >= minVoicedFrames) {
         const cb = onSpeech;
         stopMonitoring();
+        releaseMic();
         cb?.();
         return;
       }
@@ -102,67 +161,42 @@ export function createVad(options: VadOptions = {}): VadController {
 
   const controller: VadController = {
     get ready() {
-      return !!analyser;
+      return granted;
     },
 
     async prime() {
-      if (analyser) return true;
-      const AC = getAudioContext();
-      if (!AC || typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-        return false;
-      }
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        });
-        ctx = new AC();
-        source = ctx.createMediaStreamSource(stream);
-        analyser = ctx.createAnalyser();
-        analyser.fftSize = 1024;
-        analyser.smoothingTimeConstant = 0.2;
-        data = new Uint8Array(analyser.fftSize);
-        source.connect(analyser);
-        return true;
-      } catch {
-        // Insecure context, denied permission, or unsupported — barge-in falls
-        // back to the Web Speech interim path.
-        controller.dispose();
-        return false;
-      }
+      const ok = await acquire();
+      // Release immediately — we only hold the mic while actually speaking.
+      releaseMic();
+      return ok;
     },
 
     start(cb: () => void) {
-      if (!analyser) return;
-      if (ctx?.state === "suspended") void ctx.resume();
       onSpeech = cb;
       voicedFrames = 0;
       armAt = performance.now() + warmupMs;
-      if (!monitoring) {
-        monitoring = true;
+      if (monitoring) return;
+      monitoring = true;
+      void acquire().then((ok) => {
+        if (!ok || !monitoring) {
+          monitoring = false;
+          return;
+        }
+        if (ctx?.state === "suspended") void ctx.resume();
         rafId = window.requestAnimationFrame(loop);
-      }
+      });
     },
 
     stop() {
       stopMonitoring();
+      releaseMic();
     },
 
     dispose() {
       stopMonitoring();
-      try {
-        source?.disconnect();
-      } catch {
-        /* ignore */
-      }
-      stream?.getTracks().forEach((t) => t.stop());
+      releaseMic();
       if (ctx && ctx.state !== "closed") void ctx.close();
-      stream = null;
       ctx = null;
-      source = null;
       analyser = null;
       data = null;
     },
