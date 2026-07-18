@@ -12,6 +12,7 @@ import {
   useReactFlow,
   type Edge,
   type Node,
+  type NodeMouseHandler,
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -72,25 +73,14 @@ const LEVEL_META: Record<
 type StageNodeData = {
   stage: RoadmapStage;
   index: number;
-  selected: boolean;
-  onSelect: (id: string) => void;
 };
 
-function StageNode({ data }: NodeProps) {
-  const { stage, index, selected, onSelect } = data as StageNodeData;
+function StageNode({ data, selected }: NodeProps) {
+  const { stage, index } = data as StageNodeData;
   const meta = LEVEL_META[stage.level];
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onSelect(stage.id)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect(stage.id);
-        }
-      }}
       className={cn(
         "w-[200px] cursor-pointer rounded-2xl border bg-card p-3 shadow-sm transition-all",
         selected
@@ -98,7 +88,11 @@ function StageNode({ data }: NodeProps) {
           : "border-border/60 hover:border-primary/40 hover:shadow-md"
       )}
     >
-      <Handle type="target" position={Position.Left} className="!bg-primary !size-2" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!pointer-events-none !bg-primary !size-2"
+      />
       <div className="flex items-center justify-between gap-2">
         <span
           className="grid size-7 place-items-center rounded-full text-xs font-bold text-white"
@@ -117,7 +111,11 @@ function StageNode({ data }: NodeProps) {
         <Clock className="size-3" />
         {stage.estimatedTime}
       </p>
-      <Handle type="source" position={Position.Right} className="!bg-primary !size-2" />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!pointer-events-none !bg-primary !size-2"
+      />
     </div>
   );
 }
@@ -155,10 +153,10 @@ function RoadmapFlow({
       data: {
         stage,
         index: i,
-        selected: selectedId === stage.id,
-        onSelect,
       } satisfies StageNodeData,
       draggable: false,
+      selectable: true,
+      selected: selectedId === stage.id,
     }));
 
     const es: Edge[] = stages.slice(0, -1).map((stage, i) => ({
@@ -170,17 +168,29 @@ function RoadmapFlow({
     }));
 
     return { nodes: ns, edges: es };
-  }, [stages, selectedId, onSelect, expanded]);
+  }, [stages, selectedId, expanded]);
+
+  const onNodeClick = React.useCallback<NodeMouseHandler>(
+    (_event, node) => {
+      onSelect(node.id);
+    },
+    [onSelect]
+  );
 
   return (
     <ReactFlow
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
+      onNodeClick={onNodeClick}
       fitView
       fitViewOptions={{ padding: 0.2 }}
+      nodesDraggable={false}
       nodesConnectable={false}
-      elementsSelectable={false}
+      nodesSelectable
+      elementsSelectable
+      selectNodesOnDrag={false}
+      nodeClickDistance={0}
       zoomOnScroll={expanded}
       zoomOnPinch
       panOnDrag
@@ -201,7 +211,8 @@ function RoadmapFlow({
         showInteractive={false}
         className="!overflow-hidden !rounded-xl !border !border-border/60 !bg-card/95 !shadow-md [&>button]:!border-border/60 [&>button]:!bg-card"
       />
-      <FitRoadmap deps={`${selectedId}-${expanded}-${stages.length}`} />
+      {/* Only re-fit when the graph layout changes — not on every stage click. */}
+      <FitRoadmap deps={`${expanded}-${stages.map((s) => s.id).join(",")}`} />
     </ReactFlow>
   );
 }
