@@ -10,6 +10,7 @@ import { SourceCard } from "@/components/search/source-card";
 import { ListenButton } from "@/components/voice/listen-button";
 import { QuizButton } from "@/components/quiz/quiz-button";
 import { StudyInDepth } from "@/components/search/study-in-depth";
+import { CareerRoadmapPanel } from "@/components/search/career-roadmap";
 
 function buildNarration(result: SearchResult): string {
   const takeaways = result.keyTakeaways.length
@@ -84,7 +85,6 @@ export function SearchResults({
       <TldrCard
         tldr={result.tldr}
         difficulty={result.difficulty}
-        provider={result.source}
         actions={
           <>
             <ListenButton text={buildNarration(result)} label="Listen" />
@@ -111,6 +111,8 @@ export function SearchResults({
           onSelect={onConceptSelect}
         />
       </div>
+
+      <CareerRoadmapPanel result={result} onExplore={onConceptSelect} />
 
       {result.sources.length > 0 && (
         <div>

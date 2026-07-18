@@ -19,12 +19,10 @@ const DIFFICULTY_STYLES: Record<Difficulty, string> = {
 export function TldrCard({
   tldr,
   difficulty,
-  provider,
   actions,
 }: {
   tldr: string;
   difficulty: Difficulty;
-  provider: "exa" | "gemini";
   actions?: React.ReactNode;
 }) {
   return (
@@ -40,17 +38,12 @@ export function TldrCard({
           <Sparkles className="size-4" />
           TL;DR
         </div>
-        <div className="flex items-center gap-2">
-          <Badge
-            variant="outline"
-            className={cn("capitalize", DIFFICULTY_STYLES[difficulty])}
-          >
-            {difficulty}
-          </Badge>
-          <Badge variant="secondary" className="font-normal">
-            {provider === "exa" ? "Exa AI" : "AI fallback"}
-          </Badge>
-        </div>
+        <Badge
+          variant="outline"
+          className={cn("capitalize", DIFFICULTY_STYLES[difficulty])}
+        >
+          {difficulty}
+        </Badge>
       </div>
       <p className="relative mt-3 text-pretty text-lg leading-relaxed">{tldr}</p>
       {actions && <div className="relative mt-4 flex flex-wrap gap-2">{actions}</div>}

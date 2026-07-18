@@ -15,7 +15,6 @@ import { resolveIdentity } from "@/lib/identity";
 import { getDashboardStats } from "@/lib/stats";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { XpChart } from "@/components/dashboard/xp-chart";
 import { AccuracyChart } from "@/components/dashboard/accuracy-chart";
@@ -112,9 +111,6 @@ export default async function DashboardPage() {
                     className="group inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-4 py-2 text-sm transition-colors hover:border-primary/50 hover:bg-accent"
                   >
                     <span className="font-medium">{topic.query}</span>
-                    <Badge variant="secondary" className="font-normal">
-                      {topic.source === "exa" ? "Exa" : "AI"}
-                    </Badge>
                   </Link>
                 ))}
               </div>

@@ -42,6 +42,7 @@ npm install
 | `AUTH_SECRET` | Run `npx auth secret` (or `openssl rand -base64 32`). |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google Cloud Console → APIs & Services → Credentials → OAuth client (Web). |
 | `EXA_API_KEY` | https://dashboard.exa.ai |
+| `EXA_API_KEY_FALLBACK` | Optional second Exa key used if the primary fails (auth / quota). |
 | `GEMINI_API_KEY` | https://aistudio.google.com/apikey |
 
    For Google OAuth, add this **authorized redirect URI**:

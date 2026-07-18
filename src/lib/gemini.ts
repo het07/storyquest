@@ -1,10 +1,13 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
 import type {
+  CareerRoadmap,
   DeepDive,
   Difficulty,
   Quiz,
   QuizQuestion,
+  RoadmapLevel,
+  RoadmapStage,
   SearchResult,
   SearchSource,
 } from "@/types";
@@ -295,5 +298,107 @@ export async function generateDeepDive(args: {
     examples: data.examples ?? [],
     misconceptions: (data.misconceptions ?? []).filter((m) => m.myth && m.reality),
     furtherQuestions: data.furtherQuestions ?? [],
+    source: "gemini",
+  };
+}
+
+interface GeminiRoadmapShape {
+  pathTitle: string;
+  summary: string;
+  stages: {
+    title: string;
+    level: RoadmapLevel;
+    description: string;
+    skills?: string[];
+    milestones?: string[];
+    estimatedTime?: string;
+    exploreTopics?: string[];
+  }[];
+  possibleRoles?: string[];
+}
+
+const ROADMAP_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    pathTitle: { type: Type.STRING },
+    summary: { type: Type.STRING },
+    stages: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          level: {
+            type: Type.STRING,
+            enum: ["foundation", "building", "advanced", "expert"],
+          },
+          description: { type: Type.STRING },
+          skills: { type: Type.ARRAY, items: { type: Type.STRING } },
+          milestones: { type: Type.ARRAY, items: { type: Type.STRING } },
+          estimatedTime: { type: Type.STRING },
+          exploreTopics: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ["title", "level", "description"],
+      },
+    },
+    possibleRoles: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: ["pathTitle", "summary", "stages"],
+};
+
+const LEVELS: RoadmapLevel[] = ["foundation", "building", "advanced", "expert"];
+
+/**
+ * Builds a progressive learning / career roadmap for a topic so learners can
+ * see how to proceed from foundations to expertise (and related roles).
+ */
+export async function generateCareerRoadmap(args: {
+  topic: string;
+  context?: string;
+}): Promise<CareerRoadmap> {
+  const data = await generateJson<GeminiRoadmapShape>({
+    systemInstruction:
+      "You are a career and learning-path advisor. For any topic — academic, " +
+      "technical, creative, or professional — produce a clear progressive roadmap " +
+      "from foundations to expertise. Be practical and motivating. If the topic is " +
+      "not a traditional career (e.g. a historical event), frame the path as a " +
+      "mastery / study progression with relevant roles or outcomes where they exist.",
+    prompt:
+      `Create a learning and career roadmap for "${args.topic}".\n` +
+      "Return: a pathTitle, a short summary (2-3 sentences), 4-6 ordered stages " +
+      "(each with title, level: foundation|building|advanced|expert, description, " +
+      "3-5 skills, 2-3 milestones, estimatedTime like \"4-8 weeks\", and 1-3 " +
+      "exploreTopics to study next), and 3-5 possibleRoles or outcomes." +
+      (args.context
+        ? `\n\nLearner context from their search:\n${args.context}`
+        : ""),
+    responseSchema: ROADMAP_SCHEMA,
+  });
+
+  const stages: RoadmapStage[] = (data.stages ?? [])
+    .filter((s) => s.title && s.description)
+    .slice(0, 6)
+    .map((s, i) => ({
+      id: `stage-${i + 1}`,
+      title: s.title,
+      level: LEVELS.includes(s.level) ? s.level : "building",
+      description: s.description,
+      skills: s.skills ?? [],
+      milestones: s.milestones ?? [],
+      estimatedTime: s.estimatedTime || "Flexible",
+      exploreTopics: s.exploreTopics ?? [],
+    }));
+
+  if (stages.length < 3) {
+    throw new Error("Could not generate a roadmap for this topic.");
+  }
+
+  return {
+    topic: args.topic,
+    pathTitle: data.pathTitle || `Path through ${args.topic}`,
+    summary: data.summary || "",
+    stages,
+    possibleRoles: data.possibleRoles ?? [],
+    source: "gemini",
   };
 }

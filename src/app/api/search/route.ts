@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Search is temporarily unavailable. Set EXA_API_KEY (and optionally GEMINI_API_KEY for fallback), or try again in a moment.",
+          "Search is temporarily unavailable. Please try again in a moment.",
       },
       { status: 503 }
     );

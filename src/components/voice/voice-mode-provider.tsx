@@ -68,11 +68,21 @@ export function useVoiceCommands(id: string, commands: VoiceCommand[]): void {
 const STOP_SPEAK_RE = /\b(stop|quiet|silence|shut up|be quiet|enough)\b/;
 const DISABLE_VOICE_RE =
   /\b(turn off (voice|hands[- ]?free)|stop listening|exit voice|goodbye|good bye|disable voice)\b/;
+/** Open-ended search phrases — wait for a short pause so the topic is complete. */
+const OPEN_ENDED_SEARCH_RE =
+  /(?:search|explore|learn|find|look up|tell me about|teach me)(?:\s+(?:for|about))?\s+.+|\bstudy\s+(?!in\s+depth\b).+/;
 const STORAGE_KEY = "sqa:voice-mode";
 /** Restart recognition almost immediately — keep the loop feeling live. */
-const RESTART_MS = 40;
+const RESTART_MS = 0;
 /** Min interim chars before we treat speech as a barge-in interrupt. */
 const BARGE_IN_CHARS = 2;
+/**
+ * Act this long after interim text stops changing — much faster than waiting
+ * for the Web Speech API's `isFinal` (often 700ms–1.5s after you finish).
+ */
+const INTERIM_COMMIT_MS = 220;
+/** Ignore duplicate finals / re-hears of the same command. */
+const DEDUPE_MS = 1600;
 
 function normalizeVoiceText(value: string) {
   return value
@@ -124,9 +134,16 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const urlRef = React.useRef<string | null>(null);
   const restartTimerRef = React.useRef<number | null>(null);
+  const interimCommitTimerRef = React.useRef<number | null>(null);
+  const pendingInterimRef = React.useRef("");
+  const lastHandledRef = React.useRef<{ text: string; at: number }>({
+    text: "",
+    at: 0,
+  });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const startRef = React.useRef<() => void>(() => {});
   const disableRef = React.useRef<() => void>(() => {});
+  const handleTranscriptRef = React.useRef<(raw: string) => void>(() => {});
 
   const browserTts =
     typeof window !== "undefined" && "speechSynthesis" in window;
@@ -240,6 +257,58 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
 
   /* -------------------------- Speech to text ---------------------------- */
 
+  const matchesAnyCommand = React.useCallback((t: string) => {
+    if (DISABLE_VOICE_RE.test(t) || STOP_SPEAK_RE.test(t)) return true;
+    // Page-specific commands first (registered after global).
+    const getters = [...registryRef.current.values()].reverse();
+    for (const get of getters) {
+      for (const cmd of get()) {
+        if (cmd.pattern.test(t)) return true;
+      }
+    }
+    return false;
+  }, []);
+
+  /** Short / fully-anchored commands can run on the first solid interim match. */
+  const isSnapReady = React.useCallback(
+    (t: string) => {
+      if (!t || !matchesAnyCommand(t)) return false;
+      // Still collecting a topic — wait for pause (stability timer).
+      if (OPEN_ENDED_SEARCH_RE.test(t)) return false;
+      const words = t.split(" ").filter(Boolean);
+      if (words.length > 5) return false;
+      for (const get of [...registryRef.current.values()].reverse()) {
+        for (const cmd of get()) {
+          const src = cmd.pattern.source;
+          if (src.startsWith("^") && src.endsWith("$") && cmd.pattern.test(t)) {
+            return true;
+          }
+        }
+      }
+      // Common short controls (substring patterns, whole utterance is short).
+      return words.length <= 4;
+    },
+    [matchesAnyCommand]
+  );
+
+  const wasRecentlyHandled = React.useCallback((t: string) => {
+    const prev = lastHandledRef.current;
+    if (!prev.text || Date.now() - prev.at > DEDUPE_MS) return false;
+    if (t === prev.text) return true;
+    // Final often equals or lightly extends the interim we already acted on.
+    if (t.startsWith(prev.text) && t.length - prev.text.length <= 12) return true;
+    if (prev.text.startsWith(t) && prev.text.length - t.length <= 8) return true;
+    return false;
+  }, []);
+
+  const clearInterimCommit = React.useCallback(() => {
+    if (interimCommitTimerRef.current) {
+      window.clearTimeout(interimCommitTimerRef.current);
+      interimCommitTimerRef.current = null;
+    }
+    pendingInterimRef.current = "";
+  }, []);
+
   const handleTranscript = React.useCallback(
     (raw: string) => {
       const t = normalizeVoiceText(raw).replace(/[.?!,]+$/g, "");
@@ -247,28 +316,38 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
 
       // Ignore speaker bleed from our own TTS.
       if (isLikelyEcho(t, lastSpokenRef.current)) return;
+      if (wasRecentlyHandled(t)) return;
 
       // User spoke while we were talking — cut audio, then handle the command.
       if (speakingRef.current) bargeIn();
 
-      setLastCommand(raw.trim());
+      // Only mark handled if we actually run something (or a universal control).
+      const markHandled = () => {
+        lastHandledRef.current = { text: t, at: Date.now() };
+        setLastCommand(raw.trim());
+        clearInterimCommit();
+      };
 
       // Turn off hands-free mode entirely by voice.
       if (DISABLE_VOICE_RE.test(t)) {
+        markHandled();
         disableRef.current();
         return;
       }
 
       // Universal interrupt: "stop" silences TTS (listening stays on).
       if (STOP_SPEAK_RE.test(t)) {
+        markHandled();
         stopSpeaking({ resume: true });
         return;
       }
 
-      for (const get of registryRef.current.values()) {
+      // Prefer page-specific commands over global (e.g. "study in depth").
+      for (const get of [...registryRef.current.values()].reverse()) {
         for (const cmd of get()) {
           const match = t.match(cmd.pattern);
           if (match) {
+            markHandled();
             try {
               cmd.run(match);
             } catch (err) {
@@ -279,7 +358,40 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         }
       }
     },
-    [bargeIn, stopSpeaking]
+    [bargeIn, clearInterimCommit, stopSpeaking, wasRecentlyHandled]
+  );
+
+  React.useEffect(() => {
+    handleTranscriptRef.current = handleTranscript;
+  }, [handleTranscript]);
+
+  const scheduleInterimCommit = React.useCallback(
+    (raw: string) => {
+      const t = normalizeVoiceText(raw).replace(/[.?!,]+$/g, "");
+      if (!t || isLikelyEcho(t, lastSpokenRef.current)) return;
+      if (!matchesAnyCommand(t)) return;
+
+      pendingInterimRef.current = raw.trim();
+
+      // Snap: quiz letters, "next", "stop", etc. — act immediately.
+      if (isSnapReady(t)) {
+        clearInterimCommit();
+        handleTranscriptRef.current(raw);
+        return;
+      }
+
+      // Open-ended / longer phrases: commit shortly after speech stops changing.
+      if (interimCommitTimerRef.current) {
+        window.clearTimeout(interimCommitTimerRef.current);
+      }
+      interimCommitTimerRef.current = window.setTimeout(() => {
+        interimCommitTimerRef.current = null;
+        const pending = pendingInterimRef.current;
+        pendingInterimRef.current = "";
+        if (pending) handleTranscriptRef.current(pending);
+      }, INTERIM_COMMIT_MS);
+    },
+    [clearInterimCommit, isSnapReady, matchesAnyCommand]
   );
 
   const startRecognition = React.useCallback(() => {
@@ -300,6 +412,7 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         const txt = r[0]?.transcript ?? "";
         if (r.isFinal) {
           setTranscript(txt.trim());
+          clearInterimCommit();
           handleTranscript(txt);
         } else {
           interim += txt;
@@ -317,6 +430,8 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         ) {
           bargeIn();
         }
+        // Act on stable interim — don't wait for slow `isFinal`.
+        scheduleInterimCommit(trimmed);
       }
     };
 
@@ -352,7 +467,14 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
       activeRef.current = false;
       if (enabledRef.current) scheduleListen(RESTART_MS);
     }
-  }, [bargeIn, handleTranscript, scheduleListen, stopSpeaking]);
+  }, [
+    bargeIn,
+    clearInterimCommit,
+    handleTranscript,
+    scheduleInterimCommit,
+    scheduleListen,
+    stopSpeaking,
+  ]);
 
   React.useEffect(() => {
     startRef.current = startRecognition;
@@ -386,6 +508,7 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
       window.clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
+    clearInterimCommit();
     stopSpeaking({ resume: false });
     try {
       recognitionRef.current?.stop?.();
@@ -395,7 +518,7 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
     activeRef.current = false;
     setListening(false);
     setTranscript("");
-  }, [stopSpeaking]);
+  }, [clearInterimCommit, stopSpeaking]);
 
   disableRef.current = disable;
 
@@ -414,7 +537,7 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         description: "Hear the list of commands",
         run: () =>
           void speak(
-            "Commands: explore a topic. Read. Study in depth. Test me. A B C or D in a quiz. Next. Dashboard. Home. Stop. Goodbye."
+            "Commands: explore a topic. Read. Study in depth. Career path. Test me. A B C or D in a quiz. Next. Dashboard. Home. Stop. Goodbye."
           ),
       },
       {
@@ -526,6 +649,10 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
       if (restartTimerRef.current) {
         window.clearTimeout(restartTimerRef.current);
         restartTimerRef.current = null;
+      }
+      if (interimCommitTimerRef.current) {
+        window.clearTimeout(interimCommitTimerRef.current);
+        interimCommitTimerRef.current = null;
       }
       try {
         recognitionRef.current?.stop?.();

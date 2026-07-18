@@ -11,7 +11,7 @@ const HINTS = [
   "Speak anytime to interrupt",
   "\u201cExplore black holes\u201d",
   "\u201cRead\u201d \u00b7 \u201cStudy in depth\u201d",
-  "\u201cTest me\u201d \u00b7 \u201cA\u201d \u00b7 \u201cNext\u201d",
+  "\u201cCareer path\u201d \u00b7 \u201cTest me\u201d",
   "\u201cStop\u201d / \u201cGoodbye\u201d",
 ];
 

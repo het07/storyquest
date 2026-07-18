@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
-import type { Difficulty } from "@/types";
+import type { DeepDive, Difficulty } from "@/types";
+import {
+  generateDeepDiveWithExa,
+  isExaConfigured,
+  RateLimitedError,
+} from "@/lib/exa";
 import { generateDeepDive, isGeminiConfigured } from "@/lib/gemini";
 
 export const runtime = "nodejs";
@@ -8,13 +13,6 @@ export const runtime = "nodejs";
 const DIFFICULTIES: Difficulty[] = ["beginner", "intermediate", "advanced"];
 
 export async function POST(request: Request) {
-  if (!isGeminiConfigured()) {
-    return NextResponse.json(
-      { error: "In-depth study needs GEMINI_API_KEY." },
-      { status: 503 }
-    );
-  }
-
   let topic = "";
   let context = "";
   let difficulty: Difficulty = "intermediate";
@@ -31,17 +29,43 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "A topic is required." }, { status: 400 });
   }
 
-  try {
-    const guide = await generateDeepDive({ topic, context, difficulty });
-    return NextResponse.json(guide);
-  } catch (error) {
-    console.error("[deep-dive] error:", error);
+  let guide: DeepDive | null = null;
+  let usedFallback = false;
+
+  // 1) Primary: Exa (web-grounded) — avoids Gemini free-tier quota issues.
+  if (isExaConfigured()) {
+    try {
+      guide = await generateDeepDiveWithExa({ topic, context, difficulty });
+    } catch (error) {
+      usedFallback = true;
+      if (!(error instanceof RateLimitedError)) {
+        console.error("[deep-dive] Exa error:", error);
+      }
+    }
+  } else {
+    usedFallback = true;
+  }
+
+  // 2) Fallback: Gemini.
+  if (!guide && isGeminiConfigured()) {
+    try {
+      guide = await generateDeepDive({ topic, context, difficulty });
+    } catch (error) {
+      console.error("[deep-dive] Gemini fallback error:", error);
+    }
+  }
+
+  if (!guide) {
     return NextResponse.json(
       {
-        error: "Couldn't build a deeper guide right now. Please try again.",
-        detail: (error as Error)?.message?.slice(0, 300),
+        error:
+          "Couldn't build a deeper guide. Please try again in a moment.",
       },
-      { status: 502 }
+      { status: 503 }
     );
   }
+
+  return NextResponse.json(guide, {
+    headers: usedFallback ? { "x-deep-dive-fallback": "1" } : undefined,
+  });
 }

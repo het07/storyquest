@@ -64,8 +64,31 @@ export function useSpeechToText({ onResult, onInterim }: Options = {}) {
     recognition.lang = "en-US";
     recognition.interimResults = true;
     recognition.continuous = false;
+    recognition.maxAlternatives = 1;
 
     let finalText = "";
+    let liveText = "";
+    let committed = false;
+    let silenceTimer: number | null = null;
+    /** Commit shortly after speech stops changing — faster than waiting on `onend`. */
+    const SILENCE_COMMIT_MS = 280;
+
+    const commit = (text: string) => {
+      const trimmed = text.trim();
+      if (committed || !trimmed) return;
+      committed = true;
+      if (silenceTimer) {
+        window.clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
+      finalText = trimmed;
+      try {
+        recognition.stop();
+      } catch {
+        /* onend will deliver the result */
+      }
+    };
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     recognition.onresult = (event: any) => {
       let interimText = "";
@@ -74,14 +97,25 @@ export function useSpeechToText({ onResult, onInterim }: Options = {}) {
         if (result.isFinal) finalText += result[0].transcript;
         else interimText += result[0].transcript;
       }
+      liveText = (finalText + interimText).trim();
       setInterim(interimText);
-      onInterimRef.current?.((finalText + interimText).trim());
+      onInterimRef.current?.(liveText);
+
+      if (silenceTimer) window.clearTimeout(silenceTimer);
+      if (liveText) {
+        silenceTimer = window.setTimeout(() => commit(liveText), SILENCE_COMMIT_MS);
+      }
     };
-    recognition.onerror = () => setListening(false);
+    recognition.onerror = () => {
+      if (silenceTimer) window.clearTimeout(silenceTimer);
+      setListening(false);
+    };
     recognition.onend = () => {
+      if (silenceTimer) window.clearTimeout(silenceTimer);
       setListening(false);
       setInterim("");
-      const text = finalText.trim();
+      const text = (finalText || liveText).trim();
+      // Deliver once whether we early-stopped on silence or the engine ended naturally.
       if (text) onResultRef.current?.(text);
     };
 

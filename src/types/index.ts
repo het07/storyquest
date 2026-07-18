@@ -59,4 +59,31 @@ export interface DeepDive {
   misconceptions: DeepDiveMisconception[];
   /** Follow-up questions the learner can explore next. */
   furtherQuestions: string[];
+  /** Which provider synthesized the guide. */
+  source: "exa" | "gemini";
+}
+
+export type RoadmapLevel = "foundation" | "building" | "advanced" | "expert";
+
+export interface RoadmapStage {
+  id: string;
+  title: string;
+  level: RoadmapLevel;
+  description: string;
+  skills: string[];
+  milestones: string[];
+  estimatedTime: string;
+  /** Related topics the learner can search next. */
+  exploreTopics: string[];
+}
+
+/** A visual learning / career progression path for a search topic. */
+export interface CareerRoadmap {
+  topic: string;
+  pathTitle: string;
+  summary: string;
+  stages: RoadmapStage[];
+  possibleRoles: string[];
+  /** Which provider synthesized the roadmap. */
+  source: "exa" | "gemini";
 }

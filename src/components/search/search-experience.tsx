@@ -65,12 +65,6 @@ export function SearchExperience({
           throw new Error(data.error || "Search failed. Please try again.");
         }
 
-        if (res.headers.get("x-search-fallback") === "1") {
-          toast.info("Using AI fallback", {
-            description: "Exa was busy, so results came from the AI fallback.",
-          });
-        }
-
         const data: SearchResult = await res.json();
         setResult(data);
       } catch (err) {
