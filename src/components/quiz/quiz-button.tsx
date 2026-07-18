@@ -14,6 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { QuizRunner } from "@/components/quiz/quiz-runner";
+import { useVoiceCommands, useVoiceMode } from "@/components/voice/voice-mode-provider";
 
 export function QuizButton({
   topic,
@@ -25,6 +26,20 @@ export function QuizButton({
   difficulty?: Difficulty;
 }) {
   const [open, setOpen] = React.useState(false);
+  const { enabled, speak } = useVoiceMode();
+
+  // Hands-free: "test me" / "start quiz" opens the quiz without a click.
+  useVoiceCommands("quiz-open", [
+    {
+      pattern: /\b(test me|start quiz|quiz me|take (a |the )?quiz|test myself)\b/,
+      description: "Start a quiz on the current topic",
+      run: () => {
+        if (!enabled) return;
+        setOpen(true);
+        void speak(`Starting a quiz about ${topic}.`);
+      },
+    },
+  ]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -40,7 +55,9 @@ export function QuizButton({
         <DialogHeader>
           <DialogTitle>Quiz: {topic}</DialogTitle>
           <DialogDescription>
-            Answer the questions to check your understanding and earn XP.
+            {enabled
+              ? "Answer by saying A, B, C, or D. Say next for the next question."
+              : "Answer the questions to check your understanding and earn XP."}
           </DialogDescription>
         </DialogHeader>
         {open && (

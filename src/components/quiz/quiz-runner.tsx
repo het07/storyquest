@@ -15,8 +15,28 @@ import {
 import type { Difficulty, Quiz } from "@/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useVoiceCommands, useVoiceMode } from "@/components/voice/voice-mode-provider";
 
 type Phase = "loading" | "error" | "playing" | "done";
+
+function letterIndex(letter: string): number {
+  const c = letter.toLowerCase();
+  if (c === "a" || c === "1" || c === "one") return 0;
+  if (c === "b" || c === "2" || c === "two") return 1;
+  if (c === "c" || c === "3" || c === "three") return 2;
+  if (c === "d" || c === "4" || c === "four") return 3;
+  return -1;
+}
+
+function speakQuestion(q: {
+  question: string;
+  options: string[];
+}): string {
+  const opts = q.options
+    .map((o, i) => `Option ${String.fromCharCode(65 + i)}: ${o}`)
+    .join(". ");
+  return `${q.question} ${opts}. Say A, B, C, or D.`;
+}
 
 export function QuizRunner({
   topic,
@@ -29,6 +49,7 @@ export function QuizRunner({
   difficulty?: Difficulty;
   onClose?: () => void;
 }) {
+  const voice = useVoiceMode();
   const [phase, setPhase] = React.useState<Phase>("loading");
   const [quiz, setQuiz] = React.useState<Quiz | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -36,6 +57,7 @@ export function QuizRunner({
   const [answers, setAnswers] = React.useState<number[]>([]);
   const [selected, setSelected] = React.useState<number | null>(null);
   const [xp, setXp] = React.useState<number | null>(null);
+  const spokenQRef = React.useRef<string | null>(null);
 
   const load = React.useCallback(async () => {
     setPhase("loading");
@@ -72,50 +94,137 @@ export function QuizRunner({
   const answered = selected !== null;
   const isLast = quiz ? current === quiz.questions.length - 1 : false;
 
-  function choose(index: number) {
-    if (answered) return;
-    setSelected(index);
-    setAnswers((prev) => {
-      const next = [...prev];
-      next[current] = index;
-      return next;
-    });
-  }
+  const choose = React.useCallback(
+    (index: number) => {
+      if (selected !== null) return;
+      if (!quiz) return;
+      const q = quiz.questions[current];
+      if (!q || index < 0 || index > 3) return;
 
-  async function finish(finalAnswers: number[]) {
-    if (!quiz) return;
-    const score = quiz.questions.reduce(
-      (acc, q, i) => acc + (finalAnswers[i] === q.correctIndex ? 1 : 0),
-      0
-    );
-    setPhase("done");
-    try {
-      const res = await fetch("/api/quiz/attempt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          topic,
-          difficulty: quiz.difficulty,
-          score,
-          total: quiz.questions.length,
-        }),
+      setSelected(index);
+      setAnswers((prev) => {
+        const next = [...prev];
+        next[current] = index;
+        return next;
       });
-      const data = await res.json().catch(() => ({}));
-      if (typeof data.xp === "number") setXp(data.xp);
-    } catch {
-      /* result screen still shows without XP */
-    }
-  }
 
-  function next() {
-    if (!quiz) return;
-    if (isLast) {
+      if (voice.enabled) {
+        const correct = index === q.correctIndex;
+        void voice.speak(
+          `${correct ? "Correct." : "Not quite."} ${q.explanation} Say next to continue.`
+        );
+      }
+    },
+    [current, quiz, selected, voice]
+  );
+
+  const finish = React.useCallback(
+    async (finalAnswers: number[]) => {
+      if (!quiz) return;
+      const score = quiz.questions.reduce(
+        (acc, q, i) => acc + (finalAnswers[i] === q.correctIndex ? 1 : 0),
+        0
+      );
+      setPhase("done");
+      try {
+        const res = await fetch("/api/quiz/attempt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            topic,
+            difficulty: quiz.difficulty,
+            score,
+            total: quiz.questions.length,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (typeof data.xp === "number") setXp(data.xp);
+      } catch {
+        /* result screen still shows without XP */
+      }
+    },
+    [quiz, topic]
+  );
+
+  const next = React.useCallback(() => {
+    if (!quiz || selected === null) return;
+    if (current === quiz.questions.length - 1) {
       void finish(answers);
     } else {
       setCurrent((c) => c + 1);
       setSelected(answers[current + 1] ?? null);
     }
-  }
+  }, [answers, current, finish, quiz, selected]);
+
+  // Auto-read each question aloud in hands-free mode.
+  React.useEffect(() => {
+    if (!voice.enabled || phase !== "playing" || !question) return;
+    if (spokenQRef.current === question.id) return;
+    spokenQRef.current = question.id;
+    void voice.speak(
+      `Question ${current + 1} of ${quiz!.questions.length}. ${speakQuestion(question)}`
+    );
+  }, [voice, phase, question, current, quiz]);
+
+  // Announce final score.
+  React.useEffect(() => {
+    if (!voice.enabled || phase !== "done" || !quiz) return;
+    const score = quiz.questions.reduce(
+      (acc, q, i) => acc + (answers[i] === q.correctIndex ? 1 : 0),
+      0
+    );
+    void voice.speak(
+      `Quiz complete. You scored ${score} out of ${quiz.questions.length}. Say retry to try again, or done to close.`
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- announce once when entering done
+  }, [phase]);
+
+  useVoiceCommands("quiz-play", [
+    {
+      // Whole-utterance match so "explore" / "dashboard" don't steal answers.
+      pattern:
+        /^(?:(?:option|answer|choose|pick)\s+)?([abcd]|1|2|3|4|one|two|three|four)$/,
+      description: "Answer with A, B, C, or D",
+      run: (m) => {
+        if (phase !== "playing") return;
+        const idx = letterIndex(m[1] ?? "");
+        if (idx >= 0) choose(idx);
+      },
+    },
+    {
+      pattern: /\b(next|continue|see results|results)\b/,
+      description: "Go to the next question or results",
+      run: () => {
+        if (phase === "playing") next();
+      },
+    },
+    {
+      pattern: /\b(retry|try again|again)\b/,
+      description: "Retry the quiz",
+      run: () => {
+        if (phase === "done" || phase === "error") {
+          spokenQRef.current = null;
+          void load();
+        }
+      },
+    },
+    {
+      pattern: /\b(done|close|finish|exit quiz)\b/,
+      description: "Close the quiz",
+      run: () => {
+        if (phase === "done" || phase === "error") onClose?.();
+      },
+    },
+    {
+      pattern: /\b(read|repeat|read question)\b/,
+      description: "Re-read the current question",
+      run: () => {
+        if (phase === "playing" && question) {
+          void voice.speak(speakQuestion(question));
+        }
+      },
+    },
+  ]);
 
   if (phase === "loading") {
     return (

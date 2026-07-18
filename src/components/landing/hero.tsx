@@ -110,13 +110,14 @@ export function Hero() {
             <ArrowRight className="ml-1 size-4 transition-transform group-hover:translate-x-0.5" />
           </Link>
           <Link
-            href="/explore"
+            href="/explore#hands-free"
             className={cn(
               buttonVariants({ size: "lg", variant: "outline" }),
               "rounded-full px-6"
             )}
           >
-            No sign-up needed
+            <Mic className="mr-1 size-4" />
+            Go hands-free
           </Link>
         </motion.div>
 
@@ -140,7 +141,7 @@ export function Hero() {
             </div>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
-            Type it, or just say it out loud.
+            Type it, or go fully hands-free — search, listen, and quiz by voice.
           </p>
         </motion.div>
       </div>

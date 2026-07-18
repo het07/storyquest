@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/auth/user-menu";
+import { VoiceModeToggle } from "@/components/voice/voice-mode-toggle";
 
 const NAV_LINKS = [
   { href: "/", label: "Home" },
@@ -75,6 +76,7 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-2">
+          <VoiceModeToggle />
           <ThemeToggle />
           <Link
             href="/explore"

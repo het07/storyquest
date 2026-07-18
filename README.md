@@ -81,3 +81,4 @@ Open [http://localhost:3000](http://localhost:3000).
 - **Phase 6** — Quiz system: Gemini-generated MCQs with scoring, explanations & XP ✅
 - **Phase 7** — Dashboard: streak, XP, quiz accuracy & activity charts (recharts) ✅
 - **Phase 8** — Polish: profile menu + logout, SEO (sitemap/robots/OG), 404/error/loading states ✅
+- **Hands-free accessibility** — continuous voice mode for learners who cannot use hands (STT commands + TTS feedback for search, listen, quiz, navigation) ✅

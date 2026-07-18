@@ -8,6 +8,7 @@ import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { GuestBanner } from "@/components/auth/guest-banner";
 import { GuestMigrator } from "@/components/auth/guest-migrator";
+import { VoiceModeProvider } from "@/components/voice/voice-mode-provider";
 import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
@@ -74,12 +75,14 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            <Navbar />
-            <GuestBanner />
-            <main className="flex flex-1 flex-col">{children}</main>
-            <Footer />
-            <Toaster richColors position="top-center" />
-            <GuestMigrator />
+            <VoiceModeProvider>
+              <Navbar />
+              <GuestBanner />
+              <main className="flex flex-1 flex-col">{children}</main>
+              <Footer />
+              <Toaster richColors position="top-center" />
+              <GuestMigrator />
+            </VoiceModeProvider>
           </ThemeProvider>
         </AuthSessionProvider>
       </body>
