@@ -1,4 +1,4 @@
-import type { SearchProvider, SearchResult } from "@/types";
+import type { Difficulty, SearchProvider, SearchResult } from "@/types";
 
 /** A stored topic search, owned by a user id or a guest id. */
 export interface SearchQueryDoc {
@@ -15,5 +15,17 @@ export interface TopicDoc {
   category: string;
   description?: string;
   searchCount: number;
+  createdAt: Date;
+}
+
+/** A completed quiz attempt, owned by a user id or a guest id. */
+export interface QuizAttemptDoc {
+  ownerId: string;
+  topic: string;
+  difficulty: Difficulty;
+  score: number;
+  total: number;
+  /** Experience points awarded for this attempt. */
+  xp: number;
   createdAt: Date;
 }

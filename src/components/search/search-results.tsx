@@ -8,6 +8,7 @@ import { KeyTakeaways } from "@/components/search/key-takeaways";
 import { ConceptMap } from "@/components/search/concept-map";
 import { SourceCard } from "@/components/search/source-card";
 import { ListenButton } from "@/components/voice/listen-button";
+import { QuizButton } from "@/components/quiz/quiz-button";
 
 function buildNarration(result: SearchResult): string {
   const takeaways = result.keyTakeaways.length
@@ -86,6 +87,11 @@ export function SearchResults({
         actions={
           <>
             <ListenButton text={buildNarration(result)} label="Listen" />
+            <QuizButton
+              topic={result.query}
+              context={buildNarration(result)}
+              difficulty={result.difficulty}
+            />
             {quizSlot}
           </>
         }

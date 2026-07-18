@@ -1,12 +1,12 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-import type { SearchResult, SearchSource } from "@/types";
+import type { Difficulty, Quiz, QuizQuestion, SearchResult, SearchSource } from "@/types";
 
 export function isGeminiConfigured() {
   return !!process.env.GEMINI_API_KEY;
 }
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
 
 let client: GoogleGenAI | null = null;
 function getClient() {
@@ -111,4 +111,85 @@ export async function fallbackSearch(query: string): Promise<SearchResult> {
     difficulty: data.difficulty ?? "intermediate",
     sources,
   };
+}
+
+interface GeminiQuizShape {
+  questions: {
+    question: string;
+    options: string[];
+    correctIndex: number;
+    explanation: string;
+  }[];
+}
+
+const QUIZ_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    questions: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          question: { type: Type.STRING },
+          options: { type: Type.ARRAY, items: { type: Type.STRING } },
+          correctIndex: { type: Type.INTEGER },
+          explanation: { type: Type.STRING },
+        },
+        required: ["question", "options", "correctIndex", "explanation"],
+      },
+    },
+  },
+  required: ["questions"],
+};
+
+/**
+ * Generates a multiple-choice quiz for a topic, grounded in the summary the
+ * learner just read so questions stay on-topic.
+ */
+export async function generateQuiz(args: {
+  topic: string;
+  context?: string;
+  difficulty?: Difficulty;
+  numQuestions?: number;
+}): Promise<Quiz> {
+  const difficulty = args.difficulty ?? "intermediate";
+  const count = Math.min(Math.max(args.numQuestions ?? 5, 3), 10);
+
+  const data = await generateJson<GeminiQuizShape>({
+    systemInstruction:
+      "You are an expert quiz writer for a learning app. Write clear, " +
+      "unambiguous multiple-choice questions that test genuine understanding, " +
+      "not trivia. Each question must have exactly 4 options with exactly one " +
+      "correct answer, plausible distractors, and a concise explanation of why " +
+      "the correct answer is right.",
+    prompt:
+      `Create a ${count}-question multiple-choice quiz about "${args.topic}" ` +
+      `at a ${difficulty} level.` +
+      (args.context ? `\n\nUse this material as grounding:\n${args.context}` : "") +
+      "\n\nEach question needs exactly 4 options, a correctIndex (0-3), and a short explanation.",
+    responseSchema: QUIZ_SCHEMA,
+  });
+
+  const questions: QuizQuestion[] = (data.questions ?? [])
+    // Keep only well-formed 4-option questions with a valid answer index.
+    .filter(
+      (q) =>
+        Array.isArray(q.options) &&
+        q.options.length === 4 &&
+        q.correctIndex >= 0 &&
+        q.correctIndex <= 3
+    )
+    .map((q, i) => ({
+      id: `q${i + 1}`,
+      question: q.question,
+      options: q.options,
+      correctIndex: q.correctIndex,
+      explanation: q.explanation ?? "",
+    }));
+
+  if (questions.length === 0) {
+    throw new Error("Could not generate quiz questions for this topic.");
+  }
+
+  return { topic: args.topic, difficulty, questions };
 }

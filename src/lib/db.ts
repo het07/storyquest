@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/mongodb";
-import type { SearchQueryDoc, TopicDoc } from "@/types/db";
+import type { QuizAttemptDoc, SearchQueryDoc, TopicDoc } from "@/types/db";
 
 /** Typed accessors for the app's MongoDB collections. */
 export async function collections() {
@@ -7,5 +7,6 @@ export async function collections() {
   return {
     searchQueries: db.collection<SearchQueryDoc>("searchQueries"),
     topics: db.collection<TopicDoc>("topics"),
+    quizAttempts: db.collection<QuizAttemptDoc>("quizAttempts"),
   };
 }

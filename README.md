@@ -78,6 +78,6 @@ Open [http://localhost:3000](http://localhost:3000).
 - **Phase 3** — Exa search with visual, easy-to-understand results ✅
 - **Phase 4** — Trending topics + category browsing ✅
 - **Phase 5** — Voice: STT (Wispr Flow → Web Speech fallback) + TTS (ElevenLabs → browser fallback) ✅
-- **Phase 6** — Quiz system (Gemini-generated MCQs)
+- **Phase 6** — Quiz system: Gemini-generated MCQs with scoring, explanations & XP ✅
 - **Phase 7** — Dashboard (streaks, XP, charts)
 - **Phase 8** — Polish

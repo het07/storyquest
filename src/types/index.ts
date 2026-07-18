@@ -22,3 +22,19 @@ export interface SearchResult {
   difficulty: Difficulty;
   sources: SearchSource[];
 }
+
+export interface QuizQuestion {
+  id: string;
+  question: string;
+  /** Exactly four answer choices. */
+  options: string[];
+  /** Index (0-3) of the correct option. */
+  correctIndex: number;
+  explanation: string;
+}
+
+export interface Quiz {
+  topic: string;
+  difficulty: Difficulty;
+  questions: QuizQuestion[];
+}
