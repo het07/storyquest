@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
 import {
@@ -11,7 +10,6 @@ import {
   Loader2,
   LogIn,
   Minus,
-  RotateCcw,
   Swords,
   Timer,
   Trophy,
@@ -81,7 +79,6 @@ function fmtTime(ms: number): string {
 }
 
 export function ArenaMatch({ code }: { code: string }) {
-  const router = useRouter();
   const voice = useVoiceMode();
 
   const [phase, setPhase] = React.useState<Phase>("loading");
@@ -102,7 +99,6 @@ export function ArenaMatch({ code }: { code: string }) {
   const [results, setResults] = React.useState<ResultRow[]>([]);
   const [ratingDelta, setRatingDelta] = React.useState<number | undefined>();
   const [justPlayed, setJustPlayed] = React.useState(false);
-  const [rematching, setRematching] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
 
   const shareUrl =
@@ -241,29 +237,6 @@ export function ArenaMatch({ code }: { code: string }) {
       setTimeout(() => setCopied(false), 2000);
     } catch {
       toast.error("Couldn't copy the link.");
-    }
-  };
-
-  const rematch = async () => {
-    if (!match) return;
-    setRematching(true);
-    try {
-      const res = await fetch("/api/arena/challenge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          topic: match.topic,
-          difficulty: match.difficulty,
-          numQuestions: match.numQuestions,
-          timeLimitSec: match.timeLimitSec,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Couldn't start a rematch.");
-      router.push(`/arena/${data.code}`);
-    } catch (err) {
-      toast.error((err as Error).message);
-      setRematching(false);
     }
   };
 
@@ -561,15 +534,12 @@ export function ArenaMatch({ code }: { code: string }) {
         </div>
       )}
 
-      <div className="flex gap-2">
-        <Button onClick={rematch} disabled={rematching} className="flex-1 gap-2">
-          {rematching ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
-          Rematch
-        </Button>
-        <Link href="/arena" className={cn(buttonVariants({ variant: "outline" }), "flex-1")}>
-          Back to Arena
-        </Link>
-      </div>
+      <Link
+        href="/arena"
+        className={cn(buttonVariants({ variant: "outline" }), "w-full")}
+      >
+        Back to Arena
+      </Link>
     </div>
   );
 }
