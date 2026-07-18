@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { VoiceStatus } from "@/components/voice/voice-status";
+import { createVad, type VadController } from "@/lib/voice/vad";
 
 /**
  * A voice command: when the recognized (lowercased, trimmed) transcript matches
@@ -133,6 +134,7 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
   const lastSpokenRef = React.useRef("");
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const urlRef = React.useRef<string | null>(null);
+  const vadRef = React.useRef<VadController | null>(null);
   const restartTimerRef = React.useRef<number | null>(null);
   const interimCommitTimerRef = React.useRef<number | null>(null);
   const pendingInterimRef = React.useRef("");
@@ -171,6 +173,7 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
   const finishSpeaking = React.useCallback(() => {
     speakingRef.current = false;
     setSpeaking(false);
+    vadRef.current?.stop();
     // Mic should already be open for barge-in; only restart if it dropped.
     if (enabledRef.current && !activeRef.current) scheduleListen(0);
   }, [scheduleListen]);
@@ -187,6 +190,7 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         urlRef.current = null;
       }
       if (browserTts) window.speechSynthesis.cancel();
+      vadRef.current?.stop();
       speakingRef.current = false;
       setSpeaking(false);
       if (opts?.resume !== false && enabledRef.current && !activeRef.current) {
@@ -215,6 +219,9 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
 
       // Keep the mic open while speaking so the user can interrupt (barge-in).
       if (enabledRef.current && !activeRef.current) scheduleListen(0);
+      // Energy-based barge-in: cut the speaker the instant the user talks,
+      // without waiting on the (echo-dominated) Web Speech interim path.
+      vadRef.current?.start(() => bargeIn());
 
       try {
         const res = await fetch("/api/tts", {
@@ -252,7 +259,7 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         finishSpeaking();
       }
     },
-    [browserTts, finishSpeaking, scheduleListen, stopSpeaking]
+    [bargeIn, browserTts, finishSpeaking, scheduleListen, stopSpeaking]
   );
 
   /* -------------------------- Speech to text ---------------------------- */
@@ -316,9 +323,8 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
 
       // Ignore speaker bleed from our own TTS.
       if (isLikelyEcho(t, lastSpokenRef.current)) return;
-      if (wasRecentlyHandled(t)) return;
 
-      // User spoke while we were talking — cut audio, then handle the command.
+      // User spoke while we were talking — cut audio first, before anything else.
       if (speakingRef.current) bargeIn();
 
       // Only mark handled if we actually run something (or a universal control).
@@ -328,19 +334,21 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         clearInterimCommit();
       };
 
-      // Turn off hands-free mode entirely by voice.
+      // Universal controls run BEFORE the dedupe window so a repeated "stop"
+      // (e.g. said twice because the first seemed to lag) always takes effect.
       if (DISABLE_VOICE_RE.test(t)) {
         markHandled();
         disableRef.current();
         return;
       }
-
-      // Universal interrupt: "stop" silences TTS (listening stays on).
       if (STOP_SPEAK_RE.test(t)) {
         markHandled();
         stopSpeaking({ resume: true });
         return;
       }
+
+      // De-dupe ordinary commands (finals re-hearing the interim we just ran).
+      if (wasRecentlyHandled(t)) return;
 
       // Prefer page-specific commands over global (e.g. "study in depth").
       for (const get of [...registryRef.current.values()].reverse()) {
@@ -491,6 +499,10 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
     startRef.current();
+    // Prime the barge-in detector now while we have a user gesture (required to
+    // open the mic + resume the AudioContext). Failures degrade gracefully.
+    if (!vadRef.current) vadRef.current = createVad();
+    void vadRef.current.prime();
     void speak(
       "Voice mode on. Speak anytime to interrupt. Say explore, then a topic — or study in depth."
     );
@@ -510,6 +522,8 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
     }
     clearInterimCommit();
     stopSpeaking({ resume: false });
+    vadRef.current?.dispose();
+    vadRef.current = null;
     try {
       recognitionRef.current?.stop?.();
     } catch {
@@ -660,6 +674,8 @@ export function VoiceModeProvider({ children }: { children: React.ReactNode }) {
         /* ignore */
       }
       stopSpeaking({ resume: false });
+      vadRef.current?.dispose();
+      vadRef.current = null;
     };
   }, [stopSpeaking]);
 
