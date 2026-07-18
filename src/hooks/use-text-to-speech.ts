@@ -96,7 +96,21 @@ export function useTextToSpeech(): TtsState {
     [speakWithBrowser, stop]
   );
 
+  // Stop on unmount (covers client-side page navigation).
   React.useEffect(() => stop, [stop]);
+
+  // Stop when the tab is hidden (tab switch / minimize) or the page is unloaded.
+  React.useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") stop();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", stop);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", stop);
+    };
+  }, [stop]);
 
   return { speak, stop, speaking, loading, supported: browserSupported || true };
 }
