@@ -29,11 +29,17 @@ export async function POST() {
   }
 
   try {
-    const { searchQueries } = await collections();
-    await searchQueries.updateMany(
-      { ownerId: guestId },
-      { $set: { ownerId: session.user.id } }
-    );
+    const { searchQueries, quizAttempts } = await collections();
+    await Promise.all([
+      searchQueries.updateMany(
+        { ownerId: guestId },
+        { $set: { ownerId: session.user.id } }
+      ),
+      quizAttempts.updateMany(
+        { ownerId: guestId },
+        { $set: { ownerId: session.user.id } }
+      ),
+    ]);
   } catch (error) {
     console.error("[migrate] failed:", error);
     return NextResponse.json({ migrated: false }, { status: 500 });

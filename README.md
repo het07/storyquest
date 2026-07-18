@@ -79,5 +79,5 @@ Open [http://localhost:3000](http://localhost:3000).
 - **Phase 4** — Trending topics + category browsing ✅
 - **Phase 5** — Voice: STT (Wispr Flow → Web Speech fallback) + TTS (ElevenLabs → browser fallback) ✅
 - **Phase 6** — Quiz system: Gemini-generated MCQs with scoring, explanations & XP ✅
-- **Phase 7** — Dashboard (streaks, XP, charts)
+- **Phase 7** — Dashboard: streak, XP, quiz accuracy & activity charts (recharts) ✅
 - **Phase 8** — Polish
