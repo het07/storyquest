@@ -1,0 +1,22 @@
+name: CI-workflow
+
+on: 
+  push:
+    branches: [main]
+
+jobs:
+  greet:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: greeting-the-world
+        run: |
+          echo Hello world
+          echo How are you?
+
+      - name: reply
+        run: echo I am working fine!!
+      
+    
