@@ -1,0 +1,20 @@
+name: greet-anyone
+
+on:
+  workflow_dispatch:
+    inputs:
+      name: 
+        description: "enter your name"
+        default: "hp"
+        required: true
+
+jobs:
+  greet-anyone:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: quick intro
+        run: echo I am your manual greeting action
+
+      - name: dynamic greetings
+        run: echo "Hello ${{github.event.inputs.name}}"
